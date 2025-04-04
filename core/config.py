@@ -22,21 +22,20 @@ class Settings:
     # CORS settings
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
+        "https://ai-help-center-frontend-vkp9.vercel.app",
         "https://*.vercel.app",
         "https://*.netlify.app",
-        "https://*.railway.app",
-        "https://your-domain.com"  # Add your custom domain if you have one
+        "https://*.railway.app"
     ]
 
     def get_cors_origins(self) -> List[str]:
         """Get the list of CORS origins."""
-        # Get additional origins from environment variable if set
         env_origins = os.getenv("CORS_ORIGINS")
         if env_origins:
             try:
                 additional_origins = eval(env_origins)
                 if isinstance(additional_origins, list):
-                    return self.CORS_ORIGINS + additional_origins
+                    return list(set(self.CORS_ORIGINS + additional_origins))
             except:
                 pass
         return self.CORS_ORIGINS
