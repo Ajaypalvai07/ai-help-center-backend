@@ -22,10 +22,11 @@ class Settings:
     # CORS settings
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
+        "http://localhost:5173",
+        "https://ai-help-center-frontend-7ofsfgovo-ajay-palvais-projects.vercel.app",
         "https://ai-help-center-frontend-vkp9.vercel.app",
         "https://*.vercel.app",
-        "https://*.netlify.app",
-        "https://*.railway.app"
+        "https://*.netlify.app"
     ]
 
     def get_cors_origins(self) -> List[str]:
