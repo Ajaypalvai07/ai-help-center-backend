@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.py",
+      "src": "main.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "api/index.py",
+      "dest": "main.py",
       "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       "headers": {
         "Access-Control-Allow-Origin": "https://ai-help-center-frontend-vkp9.vercel.app",
@@ -23,11 +23,5 @@
     "PYTHONPATH": ".",
     "ENVIRONMENT": "production",
     "PYTHON_VERSION": "3.9"
-  },
-  "functions": {
-    "api/index.py": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
   }
 } 

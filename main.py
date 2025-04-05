@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
-from core.database import init_db, close_db
+from core.database import init_db, close_db, get_db
 from routers import chat, admin, categories, auth, feedback, multimedia
 from core.logging_config import configure_logging
 
@@ -11,10 +11,13 @@ from core.logging_config import configure_logging
 configure_logging()
 logger = logging.getLogger(__name__)
 
+# Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
-    description="AI Assistant API with OpenAI integration"
+    description="AI Assistant API with OpenAI integration",
+    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None
 )
 
 # Configure CORS
@@ -37,7 +40,9 @@ async def startup_event():
         logger.info("=== Startup Complete ===")
     except Exception as e:
         logger.error(f"❌ Startup Error: {str(e)}")
-        raise
+        # Don't raise the error in production to allow the app to start
+        if settings.ENVIRONMENT == "development":
+            raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -60,6 +65,30 @@ async def global_exception_handler(request, exc):
         }
     )
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        # Verify database connection
+        db = get_db()
+        await db.command("ping")
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "environment": settings.ENVIRONMENT
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e) if settings.ENVIRONMENT == "development" else "Service unavailable"
+            }
+        )
+
 # Include routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(categories.router, prefix="/api/v1/categories", tags=["categories"])
@@ -70,18 +99,18 @@ app.include_router(multimedia.router, prefix="/api/v1/multimedia", tags=["multim
 
 @app.get("/")
 async def root():
+    """Root endpoint"""
     try:
         return {
             "status": "running",
             "version": "1.0.0",
-            "docs_url": "/docs",
             "environment": settings.ENVIRONMENT
         }
     except Exception as e:
         logger.error(f"Error in root endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# Entry point for running the application
+# For local development
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
