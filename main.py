@@ -1,5 +1,5 @@
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
@@ -19,16 +19,12 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
     description="AI Assistant API with OpenAI integration",
-    docs_url=None,  # Disable docs in production
-    redoc_url=None  # Disable redoc in production
+    docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc"
 )
 
 # Configure CORS
-origins = [
-    "https://ai-help-center-frontend-vkp9.vercel.app",
-    "http://localhost:3000",
-    "http://localhost:5173"
-]
+origins = settings.get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -54,7 +50,7 @@ async def startup_event():
         logger.info("=== Startup Complete ===")
     except Exception as e:
         logger.error(f"❌ Startup Error: {str(e)}")
-        raise  # Always raise startup errors to ensure proper initialization
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -73,7 +69,7 @@ async def global_exception_handler(request, exc):
         status_code=500,
         content={
             "detail": "Internal server error occurred",
-            "message": "An unexpected error occurred"
+            "message": str(exc) if settings.ENVIRONMENT == "development" else "An unexpected error occurred"
         }
     )
 
@@ -95,7 +91,7 @@ async def health_check(db: AsyncIOMotorDatabase = Depends(get_db_dependency)):
             content={
                 "status": "unhealthy",
                 "database": "disconnected",
-                "error": "Service unavailable"
+                "error": str(e) if settings.ENVIRONMENT == "development" else "Service unavailable"
             }
         )
 
@@ -109,14 +105,11 @@ app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["feedback"]
 @app.get("/")
 async def root():
     """Root endpoint"""
-    try:
-        return {
-            "status": "running",
-            "version": "1.0.0"
-        }
-    except Exception as e:
-        logger.error(f"Error in root endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return {
+        "status": "running",
+        "version": "1.0.0",
+        "environment": settings.ENVIRONMENT
+    }
 
 # For local development
 if __name__ == "__main__":

@@ -1,19 +1,21 @@
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
 from core.config import settings
 import asyncio
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 class Database:
-    client: AsyncIOMotorClient = None
-    db = None
-    initialized = False
+    client: Optional[AsyncIOMotorClient] = None
+    db: Optional[AsyncIOMotorDatabase] = None
+    initialized: bool = False
 
     @classmethod
-    async def initialize(cls):
-        if cls.initialized:
+    async def initialize(cls) -> None:
+        """Initialize database connection with retry mechanism."""
+        if cls.initialized and cls.client is not None and cls.db is not None:
             return
 
         retry_count = 0
@@ -40,13 +42,10 @@ class Database:
                 # Test the connection
                 await cls.client.admin.command('ping')
                 
-                # Initialize the database
+                # Initialize database
                 cls.db = cls.client[settings.MONGODB_DB_NAME]
-                
-                # Verify we can access the database
-                await cls.db.command('ping')
-                
                 cls.initialized = True
+                
                 logger.info("✅ Connected to MongoDB successfully")
                 return
                 
@@ -56,32 +55,31 @@ class Database:
                     logger.error(f"❌ Failed to connect to MongoDB after {max_retries} attempts: {str(e)}")
                     raise
                 logger.warning(f"Connection attempt {retry_count} failed, retrying...")
-                await asyncio.sleep(1)  # Wait before retrying
+                await asyncio.sleep(1)
                 
             except Exception as e:
                 logger.error(f"❌ Unexpected error connecting to MongoDB: {str(e)}")
-                if cls.client:
-                    await cls.close()
                 raise
 
     @classmethod
-    async def close(cls):
-        """Close database connection"""
-        try:
-            if cls.client:
+    async def close(cls) -> None:
+        """Close database connection."""
+        if cls.client is not None:
+            try:
                 cls.client.close()
                 cls.client = None
                 cls.db = None
                 cls.initialized = False
-                logger.info("✅ MongoDB connection closed")
-        except Exception as e:
-            logger.error(f"❌ Error closing MongoDB connection: {str(e)}")
+                logger.info("✅ Database connection closed")
+            except Exception as e:
+                logger.error(f"❌ Error closing database connection: {str(e)}")
+                raise
 
     @classmethod
-    def get_db(cls):
-        """Get database instance (sync version)"""
-        if not cls.initialized or not cls.client or not cls.db:
-            raise Exception("Database not initialized. Call initialize() first.")
+    def get_db(cls) -> AsyncIOMotorDatabase:
+        """Get database instance."""
+        if cls.db is None:
+            raise RuntimeError("Database not initialized. Call initialize() first.")
         return cls.db
 
 # Create a singleton instance
@@ -106,11 +104,8 @@ async def get_database():
         await db.initialize()
     return db.get_db()
 
-async def get_db_dependency():
-    """For FastAPI dependency injection"""
-    if not db.initialized:
-        await db.initialize()
-    if db.db is None:
-        raise Exception("Database not initialized properly")
-    return db.db 
-    return db.get_db() 
+async def get_db_dependency() -> AsyncIOMotorDatabase:
+    """FastAPI dependency for getting database instance."""
+    if Database.db is None:
+        await Database.initialize()
+    return Database.get_db() 
