@@ -10,7 +10,6 @@
     {
       "src": "/api/v1/(.*)",
       "dest": "main.py",
-      "methods": ["OPTIONS"],
       "headers": {
         "Access-Control-Allow-Origin": "https://ai-help-center-frontend-vkp9.vercel.app",
         "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
