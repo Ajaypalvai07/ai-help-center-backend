@@ -2,29 +2,26 @@
   "version": 2,
   "builds": [
     {
-      "src": "backend/main.py",
+      "src": "main.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
-      "src": "/api/v1/(.*)",
-      "dest": "backend/main.py",
+      "src": "/(.*)",
+      "dest": "main.py",
+      "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       "headers": {
         "Access-Control-Allow-Origin": "https://ai-help-center-frontend-vkp9.vercel.app",
-        "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization",
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Max-Age": "86400"
       }
-    },
-    {
-      "src": "/(.*)",
-      "dest": "backend/main.py"
     }
   ],
   "env": {
-    "PYTHONPATH": "backend",
+    "PYTHONPATH": ".",
     "ENVIRONMENT": "production",
     "PYTHON_VERSION": "3.11",
     "CORS_ORIGINS": "https://ai-help-center-frontend-vkp9.vercel.app"
