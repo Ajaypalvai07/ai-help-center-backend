@@ -9,6 +9,7 @@ class Settings:
     # API Configuration
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "AI Assistant API"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
 
     # MongoDB settings
     MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
