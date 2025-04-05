@@ -20,7 +20,7 @@ app = FastAPI(
 )
 
 # Configure CORS
-origins = settings.get_cors_origins()
+origins = ["https://ai-help-center-frontend-vkp9.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
