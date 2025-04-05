@@ -20,13 +20,14 @@ app = FastAPI(
 )
 
 # Configure CORS
-origins = settings.get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["https://ai-help-center-frontend-vkp9.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600
 )
 
 # Import routers here to avoid circular imports
@@ -39,7 +40,7 @@ async def startup_event():
         logger.info("=== Starting AI Assistant API ===")
         # Initialize database first
         await init_db()
-        logger.info(f"✅ CORS enabled for: {origins}")
+        logger.info(f"✅ CORS enabled for: https://ai-help-center-frontend-vkp9.vercel.app")
         logger.info("=== Startup Complete ===")
     except Exception as e:
         logger.error(f"❌ Startup Error: {str(e)}")
