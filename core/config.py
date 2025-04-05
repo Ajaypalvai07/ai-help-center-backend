@@ -16,17 +16,14 @@ class Settings:
 
     # JWT settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here")
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
     # CORS settings
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://ai-help-center-frontend-7ofsfgovo-ajay-palvais-projects.vercel.app",
+    DEFAULT_CORS_ORIGINS: List[str] = [
         "https://ai-help-center-frontend-vkp9.vercel.app",
-        "https://*.vercel.app",
-        "https://*.netlify.app"
+        "http://localhost:3000",
+        "http://localhost:5173"
     ]
 
     def get_cors_origins(self) -> List[str]:
@@ -34,12 +31,18 @@ class Settings:
         env_origins = os.getenv("CORS_ORIGINS")
         if env_origins:
             try:
-                additional_origins = eval(env_origins)
+                # Split by comma if it's a string
+                if isinstance(env_origins, str):
+                    additional_origins = [origin.strip() for origin in env_origins.split(",")]
+                # Try to evaluate if it's a JSON string
+                else:
+                    additional_origins = eval(env_origins)
                 if isinstance(additional_origins, list):
-                    return list(set(self.CORS_ORIGINS + additional_origins))
-            except:
-                pass
-        return self.CORS_ORIGINS
+                    return list(set(self.DEFAULT_CORS_ORIGINS + additional_origins))
+            except Exception as e:
+                print(f"Error parsing CORS_ORIGINS: {e}")
+                return self.DEFAULT_CORS_ORIGINS
+        return self.DEFAULT_CORS_ORIGINS
 
 # Initialize settings
 settings = Settings()
