@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
 from core.database import init_db, close_db, get_db
-from routers import chat, admin, categories, auth, feedback, multimedia
 from core.logging_config import configure_logging
 
 # Configure logging
@@ -30,11 +29,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Import routers here to avoid circular imports
+from routers import chat, admin, categories, auth, feedback, multimedia
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup"""
     try:
         logger.info("=== Starting AI Assistant API ===")
+        # Initialize database first
         await init_db()
         logger.info(f"✅ CORS enabled for: {origins}")
         logger.info("=== Startup Complete ===")
