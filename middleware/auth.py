@@ -3,14 +3,18 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from core.config import settings
 from models.user import UserInDB, User
-from core.database import get_database
+from core.database import get_db_dependency
 from core.auth import decode_token
+from motor.motor_asyncio import AsyncIOMotorDatabase
 import logging
 
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_database)) -> UserInDB:
+async def get_current_user(
+    token: str = Depends(oauth2_scheme), 
+    db: AsyncIOMotorDatabase = Depends(get_db_dependency)
+) -> UserInDB:
     """Verify JWT token and return user."""
     try:
         credentials_exception = HTTPException(
@@ -69,7 +73,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_d
             detail="Internal server error"
         )
 
-async def get_current_active_user(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
+async def get_current_active_user(
+    current_user: UserInDB = Depends(get_current_user)
+) -> UserInDB:
     """Ensure user is active."""
     if not current_user.is_active:
         logger.warning(f"Inactive user attempted access: {current_user.email}")
@@ -79,7 +85,9 @@ async def get_current_active_user(current_user: UserInDB = Depends(get_current_u
         )
     return current_user
 
-async def get_current_admin(current_user: UserInDB = Depends(get_current_active_user)) -> UserInDB:
+async def get_current_admin(
+    current_user: UserInDB = Depends(get_current_active_user)
+) -> UserInDB:
     """Ensure user is an admin."""
     if current_user.role != "admin":
         logger.warning(f"Non-admin user attempted admin access: {current_user.email}")

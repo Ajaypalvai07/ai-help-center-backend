@@ -3,12 +3,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
-from core.database import init_db, close_db, get_db
+from core.database import Database, get_db_dependency
 from core.logging_config import configure_logging
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 # Configure logging
 configure_logging()
 logger = logging.getLogger(__name__)
+
+# Initialize database
+db = Database()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -44,7 +48,8 @@ async def startup_event():
     try:
         logger.info("=== Starting AI Assistant API ===")
         # Initialize database first
-        await init_db()
+        await db.initialize()
+        logger.info("✅ Database initialized")
         logger.info(f"✅ CORS enabled for: {', '.join(origins)}")
         logger.info("=== Startup Complete ===")
     except Exception as e:
@@ -55,7 +60,7 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on application shutdown"""
     try:
-        await close_db()
+        await db.close()
         logger.info("✅ Application shutdown complete")
     except Exception as e:
         logger.error(f"❌ Shutdown Error: {str(e)}")
@@ -74,11 +79,10 @@ async def global_exception_handler(request, exc):
 
 # Health check endpoint
 @app.get("/health")
-async def health_check():
+async def health_check(db: AsyncIOMotorDatabase = Depends(get_db_dependency)):
     """Health check endpoint"""
     try:
         # Verify database connection
-        db = get_db()
         await db.command("ping")
         return {
             "status": "healthy",

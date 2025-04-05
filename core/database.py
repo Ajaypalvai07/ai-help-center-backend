@@ -106,8 +106,11 @@ async def get_database():
         await db.initialize()
     return db.get_db()
 
-def get_db_dependency():
+async def get_db_dependency():
     """For FastAPI dependency injection"""
     if not db.initialized:
-        raise Exception("Database not initialized. Call initialize() first.")
+        await db.initialize()
+    if db.db is None:
+        raise Exception("Database not initialized properly")
+    return db.db 
     return db.get_db() 
