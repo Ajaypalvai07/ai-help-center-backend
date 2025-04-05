@@ -32,7 +32,7 @@ app.add_middleware(
 )
 
 # Import routers here to avoid circular imports
-from routers import chat, admin, categories, auth, feedback, multimedia
+from routers import chat, admin, categories, auth, feedback
 
 @app.on_event("startup")
 async def startup_event():
@@ -97,7 +97,6 @@ app.include_router(categories.router, prefix="/api/v1/categories", tags=["catego
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["feedback"])
-app.include_router(multimedia.router, prefix="/api/v1/multimedia", tags=["multimedia"])
 
 @app.get("/")
 async def root():
