@@ -15,12 +15,12 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
     description="AI Assistant API with OpenAI integration",
-    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
-    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None
+    docs_url=None,  # Disable docs in production
+    redoc_url=None  # Disable redoc in production
 )
 
 # Configure CORS
-origins = ["https://ai-help-center-frontend-vkp9.vercel.app"]
+origins = settings.get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -43,7 +43,7 @@ async def startup_event():
         logger.info("=== Starting AI Assistant API ===")
         # Initialize database first
         await init_db()
-        logger.info(f"✅ CORS enabled for: https://ai-help-center-frontend-vkp9.vercel.app")
+        logger.info(f"✅ CORS enabled for: {', '.join(origins)}")
         logger.info("=== Startup Complete ===")
     except Exception as e:
         logger.error(f"❌ Startup Error: {str(e)}")
@@ -68,7 +68,7 @@ async def global_exception_handler(request, exc):
         status_code=500,
         content={
             "detail": "Internal server error occurred",
-            "message": str(exc) if settings.ENVIRONMENT == "development" else "An unexpected error occurred"
+            "message": "An unexpected error occurred"
         }
     )
 
@@ -82,8 +82,7 @@ async def health_check():
         await db.command("ping")
         return {
             "status": "healthy",
-            "database": "connected",
-            "environment": settings.ENVIRONMENT
+            "database": "connected"
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
@@ -92,7 +91,7 @@ async def health_check():
             content={
                 "status": "unhealthy",
                 "database": "disconnected",
-                "error": str(e) if settings.ENVIRONMENT == "development" else "Service unavailable"
+                "error": "Service unavailable"
             }
         )
 
@@ -110,8 +109,7 @@ async def root():
     try:
         return {
             "status": "running",
-            "version": "1.0.0",
-            "environment": settings.ENVIRONMENT
+            "version": "1.0.0"
         }
     except Exception as e:
         logger.error(f"Error in root endpoint: {str(e)}")
