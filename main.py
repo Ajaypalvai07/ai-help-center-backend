@@ -20,14 +20,17 @@ app = FastAPI(
 )
 
 # Configure CORS
+origins = ["https://ai-help-center-frontend-vkp9.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://ai-help-center-frontend-vkp9.vercel.app"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["X-CSRF-Token", "X-Requested-With", "Accept", "Accept-Version", 
+                  "Content-Length", "Content-MD5", "Content-Type", "Date", 
+                  "X-Api-Version", "Authorization"],
     expose_headers=["*"],
-    max_age=600
+    max_age=86400
 )
 
 # Import routers here to avoid circular imports
