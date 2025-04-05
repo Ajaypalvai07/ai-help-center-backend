@@ -79,7 +79,7 @@ class Database:
 
     @classmethod
     def get_db(cls):
-        """Get database instance"""
+        """Get database instance (sync version)"""
         if not cls.initialized or not cls.client or not cls.db:
             raise Exception("Database not initialized. Call initialize() first.")
         return cls.db
@@ -87,12 +87,27 @@ class Database:
 # Create a singleton instance
 db = Database()
 
-# Initialize and close functions for compatibility
+# Initialize and close functions
 async def init_db():
+    """Initialize the database connection"""
     await db.initialize()
 
 async def close_db():
+    """Close the database connection"""
     await db.close()
 
 def get_db():
+    """Get database instance (sync version)"""
+    return db.get_db()
+
+async def get_database():
+    """Get database instance (async version)"""
+    if not db.initialized:
+        await db.initialize()
+    return db.get_db()
+
+def get_db_dependency():
+    """For FastAPI dependency injection"""
+    if not db.initialized:
+        raise Exception("Database not initialized. Call initialize() first.")
     return db.get_db() 

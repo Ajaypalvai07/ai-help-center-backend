@@ -19,6 +19,11 @@ class Settings:
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
+    # Hugging Face settings
+    HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")
+    HUGGINGFACE_MODEL: str = os.getenv("HUGGINGFACE_MODEL", "google/flan-t5-base")
+    USE_HUGGINGFACE: bool = bool(os.getenv("USE_HUGGINGFACE", "false").lower() == "true")
+
     # CORS settings
     DEFAULT_CORS_ORIGINS: List[str] = [
         "https://ai-help-center-frontend-vkp9.vercel.app",

@@ -21,17 +21,92 @@ logger = logging.getLogger(__name__)
 
 class AIService:
     def __init__(self):
-        """Initialize the AI service with Ollama"""
+        """Initialize the AI service with Ollama and/or Hugging Face"""
         try:
-            self.model_name = "mistral"  # Default model
-            self.ollama_base_url = "http://localhost:11434"  # Default Ollama API endpoint
+            self.model_name = "mistral"  # Default model for Ollama
+            self.ollama_base_url = "http://localhost:11434"
             self.client = httpx.AsyncClient(base_url=self.ollama_base_url, timeout=60.0)
-            logger.info("✅ AI Service initialized with Ollama - using model: %s", self.model_name)
+            
+            # Initialize Hugging Face client if configured
+            self.hf_client = None
+            if settings.USE_HUGGINGFACE and settings.HUGGINGFACE_API_KEY:
+                self.hf_client = httpx.AsyncClient(
+                    base_url="https://api-inference.huggingface.co/models",
+                    headers={"Authorization": f"Bearer {settings.HUGGINGFACE_API_KEY}"},
+                    timeout=30.0
+                )
+                logger.info("✅ Hugging Face API client initialized")
+            
+            logger.info("✅ AI Service initialized")
         except Exception as e:
             logger.error(f"❌ Error initializing AI service: {str(e)}")
             self.client = None
 
     async def generate_solution(self, query: str, category: str, context: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Generate a solution using available AI services"""
+        try:
+            # Try Hugging Face first if configured
+            if self.hf_client and settings.USE_HUGGINGFACE:
+                try:
+                    return await self._generate_huggingface(query, category, context)
+                except Exception as e:
+                    logger.error(f"❌ Hugging Face API error: {str(e)}")
+                    # Fall through to Ollama if Hugging Face fails
+            
+            # Try Ollama if available
+            if self.client:
+                return await self._generate_ollama(query, category, context)
+            
+            # Use fallback if both services fail
+            return await self._generate_fallback(query, category)
+
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in generate_solution: {str(e)}")
+            return await self._generate_fallback(query, category)
+
+    async def _generate_huggingface(self, query: str, category: str, context: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Generate a solution using Hugging Face API"""
+        try:
+            # Format prompt with context
+            prompt = f"Category: {category}\n\n"
+            if context:
+                for msg in context[-3:]:
+                    role = "User" if msg.get("is_user", True) else "Assistant"
+                    prompt += f"{role}: {msg['content']}\n"
+            prompt += f"\nUser: {query}\nAssistant:"
+
+            # Make request to Hugging Face API
+            response = await self.hf_client.post(
+                f"/{settings.HUGGINGFACE_MODEL}",
+                json={"inputs": prompt, "parameters": {"max_length": 512}}
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            generated_text = result[0]["generated_text"].strip()
+            
+            if not generated_text:
+                raise ValueError("Empty response from Hugging Face API")
+                
+            logger.info("✅ Successfully generated AI response using Hugging Face API")
+            
+            return {
+                "content": generated_text,
+                "confidence": 0.9,
+                "created_at": datetime.utcnow().isoformat(),
+                "category": category,
+                "metrics": {
+                    "length": len(generated_text),
+                    "model": settings.HUGGINGFACE_MODEL,
+                    "provider": "huggingface"
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Hugging Face API error: {str(e)}")
+            raise
+
+    async def _generate_ollama(self, query: str, category: str, context: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate a solution using local Ollama model"""
         try:
             if not self.client:

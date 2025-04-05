@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from models.message import MessageCreate, Message
 from services.ai_service import ai_service
-from core.database import get_database
+from core.database import get_db_dependency
 from middleware.auth import get_current_user, get_current_active_user
 from models.user import UserInDB
 from core.ml_engine import ml_engine
@@ -29,7 +29,7 @@ class ChatAnalyzeResponse(BaseModel):
 async def analyze_chat(
     message: ChatAnalyzeRequest,
     current_user: UserInDB = Depends(get_current_active_user),
-    db = Depends(get_database)
+    db = Depends(get_db_dependency)
 ):
     """Analyze a chat message using AI"""
     try:
@@ -99,7 +99,7 @@ async def submit_feedback(
     message_id: str,
     feedback: Dict[str, Any],
     current_user: UserInDB = Depends(get_current_active_user),
-    db = Depends(get_database)
+    db = Depends(get_db_dependency)
 ):
     """Submit feedback for a chat message"""
     try:
@@ -128,7 +128,7 @@ async def submit_feedback(
 async def get_user_history(
     user_id: str,
     current_user: UserInDB = Depends(get_current_active_user),
-    db = Depends(get_database)
+    db = Depends(get_db_dependency)
 ) -> List[Message]:
     """Get chat history for a user"""
     try:
@@ -164,7 +164,7 @@ async def get_category_stats(category: Optional[str]) -> dict:
         if not category:
             return {}
 
-        db = await get_database()
+        db = await get_db_dependency()
         stats = await db.category_stats.find_one({"category": category})
         return stats or {}
     except Exception:
@@ -172,7 +172,7 @@ async def get_category_stats(category: Optional[str]) -> dict:
 
 async def update_message_status(message_id: str, status: str, data: dict):
     try:
-        db = await get_database()
+        db = await get_db_dependency()
         await db.messages.update_one(
             {"_id": ObjectId(message_id)},
             {"$set": {
