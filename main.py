@@ -47,9 +47,7 @@ async def startup_event():
         logger.info("=== Startup Complete ===")
     except Exception as e:
         logger.error(f"❌ Startup Error: {str(e)}")
-        # Don't raise the error in production to allow the app to start
-        if settings.ENVIRONMENT == "development":
-            raise
+        raise  # Always raise startup errors to ensure proper initialization
 
 @app.on_event("shutdown")
 async def shutdown_event():
