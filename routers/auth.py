@@ -6,7 +6,9 @@ from core.auth import verify_password, get_password_hash, create_access_token
 from models.user import UserCreate, UserResponse, UserInDB, User
 from middleware.auth import get_current_user, get_current_active_user
 from motor.motor_asyncio import AsyncIOMotorDatabase
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 @router.post("/token", summary="Login to get access token")
@@ -16,59 +18,52 @@ async def login(
 ):
     """Authenticate user and return access token."""
     try:
-        print(f"Login attempt for username: {form_data.username}")
+        logger.info(f"Login attempt for username: {form_data.username}")
         
-        user = await db.users.find_one({"email": form_data.username})
+        # Find user by email
+        user = await db["users"].find_one({"email": form_data.username})
         if not user:
-            print(f"User not found with email: {form_data.username}")
+            logger.warning(f"User not found: {form_data.username}")
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, 
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password"
             )
 
+        # Verify password
         if not verify_password(form_data.password, user["password"]):
-            print(f"Invalid password for user: {form_data.username}")
+            logger.warning(f"Invalid password for user: {form_data.username}")
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, 
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password"
             )
 
-        print(f"Successful login for user: {form_data.username}")
-        
         # Update last login timestamp
-        await db.users.update_one(
-            {"_id": user["_id"]}, 
+        await db["users"].update_one(
+            {"_id": user["_id"]},
             {"$set": {"last_login": datetime.utcnow()}}
         )
-        
+
+        # Create access token
         access_token = create_access_token(data={"sub": user["email"]})
-
-        # Convert to UserResponse
-        user_response = UserResponse(
-            id=str(user["_id"]),
-            email=user["email"],
-            name=user["name"],
-            role=user["role"],
-            is_active=user["is_active"],
-            created_at=user["created_at"],
-            last_login=user["last_login"],
-            preferences=user.get("preferences", {})
-        )
-
+        
+        # Convert MongoDB _id to string
+        user["id"] = str(user["_id"])
+        del user["_id"]
+        
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "user": user_response
+            "user": UserResponse(**user)
         }
+
     except Exception as e:
-        print(f"Login error: {str(e)}")
+        logger.error(f"Login error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 
-
-@router.post("/register", response_model=User, summary="Register a new user")
+@router.post("/register", response_model=UserResponse, summary="Register a new user")
 async def register(
     user_data: UserCreate,
     db: AsyncIOMotorDatabase = Depends(get_db_dependency)
@@ -76,35 +71,35 @@ async def register(
     """Register a new user."""
     try:
         # Check if user already exists
-        existing_user = await db.users.find_one({"email": user_data.email})
+        existing_user = await db["users"].find_one({"email": user_data.email})
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered"
             )
 
-        # Create user dictionary
+        # Create user document
         user_dict = {
             "email": user_data.email,
             "name": user_data.name,
             "password": get_password_hash(user_data.password),
+            "role": "user",
+            "is_active": True,
             "created_at": datetime.utcnow(),
             "last_login": None,
-            "preferences": {},
-            "role": "user",
-            "is_active": True
+            "preferences": {}
         }
 
-        # Insert the new user
-        result = await db.users.insert_one(user_dict)
+        # Insert user
+        result = await db["users"].insert_one(user_dict)
         if not result.inserted_id:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create user"
             )
 
-        # Retrieve the created user
-        created_user = await db.users.find_one({"_id": result.inserted_id})
+        # Get created user
+        created_user = await db["users"].find_one({"_id": result.inserted_id})
         if not created_user:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -112,27 +107,26 @@ async def register(
             )
 
         # Convert MongoDB _id to string
-        created_user["id"] = str(created_user.pop("_id"))
+        created_user["id"] = str(created_user["_id"])
+        del created_user["_id"]
         
-        # Create access token for the new user
+        # Create access token
         access_token = create_access_token(data={"sub": created_user["email"]})
-        
+
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "user": User(**created_user)
+            "user": UserResponse(**created_user)
         }
 
     except HTTPException as he:
-        # Re-raise HTTP exceptions
         raise he
     except Exception as e:
-        print(f"Registration error: {str(e)}")
+        logger.error(f"Registration error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Registration failed: {str(e)}"
+            detail=str(e)
         )
-
 
 @router.get("/verify", response_model=UserResponse, summary="Verify current token")
 async def verify_token(
@@ -152,12 +146,11 @@ async def verify_token(
             preferences=current_user.preferences
         )
     except Exception as e:
-        print(f"Error in verify_token: {str(e)}")
+        logger.error(f"Error in verify_token: {str(e)}")
         raise HTTPException(
-            status_code=500,
-            detail="Failed to verify token"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
-
 
 @router.get("/me", response_model=UserResponse, summary="Get current user info")
 async def read_users_me(
