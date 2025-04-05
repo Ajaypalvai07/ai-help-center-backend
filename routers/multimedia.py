@@ -5,32 +5,20 @@ from models.user import UserInDB
 from middleware.auth import get_current_active_user
 from core.database import get_database
 import logging
-import aiofiles
-import os
 from datetime import datetime
 import uuid
+import io
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/media", tags=["multimedia"])
 
-UPLOAD_DIR = "uploads"
 ALLOWED_AUDIO_TYPES = {"audio/wav", "audio/mp3", "audio/mpeg"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-async def save_file(file: UploadFile, file_type: str) -> str:
-    """Save uploaded file and return the file path"""
-    ext = file.filename.split(".")[-1]
-    filename = f"{file_type}_{uuid.uuid4()}.{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    
-    async with aiofiles.open(filepath, "wb") as buffer:
-        content = await file.read()
-        await buffer.write(content)
-    
-    return filepath
+async def process_file_upload(file: UploadFile) -> bytes:
+    """Process file upload and return the content"""
+    return await file.read()
 
 @router.post("/voice", response_model=MediaAnalysisResponse)
 async def process_voice(
@@ -43,27 +31,25 @@ async def process_voice(
         if file.content_type not in ALLOWED_AUDIO_TYPES:
             raise HTTPException(status_code=400, detail="Invalid audio format")
             
-        if file.size > MAX_FILE_SIZE:
+        content = await process_file_upload(file)
+        if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail="File too large")
             
-        filepath = await save_file(file, "voice")
         session_id = str(uuid.uuid4())
         
         voice_input = {
             "user_id": str(current_user.id),
             "session_id": session_id,
-            "audio_file": {
-                "path": filepath,
-                "format": file.content_type,
-                "size": file.size
+            "audio_data": {
+                "content_type": file.content_type,
+                "size": len(content),
+                "filename": file.filename
             },
             "created_at": datetime.utcnow()
         }
         
         result = await db.voice_inputs.insert_one(voice_input)
         
-        # Here you would typically start an async task for transcription
-        # For now, we'll return the ID for status checking
         return MediaAnalysisResponse(
             id=str(result.inserted_id),
             status="processing"
@@ -84,27 +70,25 @@ async def process_image(
         if file.content_type not in ALLOWED_IMAGE_TYPES:
             raise HTTPException(status_code=400, detail="Invalid image format")
             
-        if file.size > MAX_FILE_SIZE:
+        content = await process_file_upload(file)
+        if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail="File too large")
             
-        filepath = await save_file(file, "image")
         session_id = str(uuid.uuid4())
         
         image_analysis = {
             "user_id": str(current_user.id),
             "session_id": session_id,
-            "image": {
-                "path": filepath,
-                "type": file.content_type,
-                "size": file.size
+            "image_data": {
+                "content_type": file.content_type,
+                "size": len(content),
+                "filename": file.filename
             },
             "created_at": datetime.utcnow()
         }
         
         result = await db.image_analysis.insert_one(image_analysis)
         
-        # Here you would typically start an async task for image analysis
-        # For now, we'll return the ID for status checking
         return MediaAnalysisResponse(
             id=str(result.inserted_id),
             status="processing"
@@ -122,7 +106,6 @@ async def get_analysis_result(
 ):
     """Get the status/result of a media analysis"""
     try:
-        # Check both collections
         result = await db.voice_inputs.find_one({"_id": analysis_id}) or \
                 await db.image_analysis.find_one({"_id": analysis_id})
                 
