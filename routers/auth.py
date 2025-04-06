@@ -75,7 +75,7 @@ async def login(
             detail="An unexpected error occurred"
         )
 
-@router.post("/register", response_model=UserResponse, summary="Register a new user")
+@router.post("/register", response_model=dict, summary="Register a new user")
 async def register(
     user_data: UserCreate,
     db: AsyncIOMotorDatabase = Depends(get_db_dependency)
@@ -103,6 +103,7 @@ async def register(
         user_dict["role"] = "user"
         user_dict["is_active"] = True
         user_dict["preferences"] = {}
+        user_dict["last_login"] = None
 
         # Insert into database
         try:
@@ -122,11 +123,23 @@ async def register(
 
         logger.info(f"Registration successful for user: {user_data.email}")
         
-        # Return user data and token
+        # Create UserResponse object
+        user_response = UserResponse(
+            id=str(result.inserted_id),
+            email=user_dict["email"],
+            name=user_dict["name"],
+            role=user_dict["role"],
+            is_active=user_dict["is_active"],
+            created_at=user_dict["created_at"],
+            last_login=user_dict["last_login"],
+            preferences=user_dict["preferences"]
+        )
+        
+        # Return response
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "user": UserInDB(**user_dict)
+            "user": user_response
         }
 
     except HTTPException as he:
