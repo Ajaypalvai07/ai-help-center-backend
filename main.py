@@ -6,6 +6,8 @@ from core.config import settings
 from core.database import init_db, close_db, get_db_dependency
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from core.logging_config import configure_logging
+from routers import auth, chat, admin, categories, feedback
+from datetime import datetime
 
 # Configure logging
 configure_logging()
@@ -29,9 +31,6 @@ app.add_middleware(
 )
 
 # Import routers
-from routers import auth, chat, admin, categories, feedback
-
-# Register routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["admin"])
@@ -40,73 +39,82 @@ app.include_router(feedback.router, prefix=f"{settings.API_V1_STR}/feedback", ta
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup."""
+    """
+    Initialize services on startup
+    """
     try:
-        logger.info("Starting up application...")
+        logger.info("🚀 Starting AI Help Center API...")
+        logger.info(f"Environment: {settings.ENVIRONMENT}")
+        logger.info(f"API Version: {settings.API_V1_STR}")
+        
+        # Initialize database
         await init_db()
-        logger.info("Application startup complete")
+        logger.info("✅ Database connection established")
+        
+        # Log CORS settings
+        logger.info(f"CORS Origins: {settings.get_cors_origins()}")
+        
+        logger.info("✨ API startup complete")
     except Exception as e:
-        logger.error(f"Error during startup: {str(e)}")
+        logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
         raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup on shutdown."""
+    """
+    Cleanup on shutdown
+    """
     try:
-        logger.info("Shutting down application...")
+        logger.info("Shutting down API...")
         await close_db()
-        logger.info("Application shutdown complete")
+        logger.info("Database connection closed")
     except Exception as e:
-        logger.error(f"Error during shutdown: {str(e)}")
-        raise
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler."""
-    error_msg = str(exc)
-    logger.error(f"Global error handler caught: {error_msg}")
-    
-    if settings.ENVIRONMENT == "development":
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": error_msg,
-                "path": request.url.path,
-                "method": request.method
-            }
-        )
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+        logger.error(f"Shutdown error: {str(e)}", exc_info=True)
 
 @app.get("/health")
-async def health_check(db: AsyncIOMotorDatabase = Depends(get_db_dependency)):
-    """Check application health."""
+async def health_check(db = Depends(get_db_dependency)):
+    """
+    Check API health and database connection
+    """
     try:
-        # Test database connection
+        # Check database connection
         await db.command("ping")
+        
         return {
             "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
             "database": "connected",
-            "environment": settings.ENVIRONMENT
+            "environment": settings.ENVIRONMENT,
+            "version": settings.API_V1_STR
         }
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "environment": settings.ENVIRONMENT
-        }
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Service unavailable"
+        )
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
+    """
+    Root endpoint
+    """
     return {
-        "app": settings.PROJECT_NAME,
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT,
-        "status": "running"
+        "name": settings.PROJECT_NAME,
+        "version": settings.API_V1_STR,
+        "docs_url": f"{settings.API_V1_STR}/docs",
+        "environment": settings.ENVIRONMENT
+    }
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global error handler caught: {str(exc)}", exc_info=True)
+    return {
+        "status": "error",
+        "message": "An unexpected error occurred",
+        "path": request.url.path,
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 # For local development
