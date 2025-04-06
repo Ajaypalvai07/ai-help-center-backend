@@ -3,12 +3,13 @@ from fastapi import FastAPI, HTTPException, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
-from core.database import init_db, close_db, get_db_dependency, Database
+from core.database import Database, init_db
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from core.logging_config import configure_logging
 from routers import auth, chat, admin, categories, feedback
 from datetime import datetime
 import sys
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -51,11 +52,23 @@ async def startup_event():
     try:
         logger.info("🚀 Starting application...")
         logger.info(f"Environment: {settings.ENVIRONMENT}")
-        logger.info(f"API Version: {settings.API_V1_STR}")
+        logger.info(f"MongoDB URL configured: {'Yes' if settings.MONGODB_URL else 'No'}")
         
-        # Initialize database
-        await init_db()
-        logger.info("✅ Database initialized successfully")
+        # Initialize database with retries
+        retry_count = 0
+        max_retries = 3
+        while retry_count < max_retries:
+            try:
+                await init_db()
+                logger.info("✅ Database initialized successfully")
+                break
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"Database initialization attempt {retry_count} failed: {str(e)}")
+                if retry_count == max_retries:
+                    logger.error("❌ All database initialization attempts failed")
+                    raise
+                await asyncio.sleep(2)  # Wait before retrying
         
         # Log CORS settings
         logger.info(f"CORS Origins: {settings.get_cors_origins()}")
@@ -72,7 +85,7 @@ async def shutdown_event():
     """
     try:
         logger.info("Shutting down API...")
-        await close_db()
+        await Database.close()
         logger.info("✅ Cleaned up resources")
     except Exception as e:
         logger.error(f"❌ Error during cleanup: {str(e)}")
@@ -83,6 +96,12 @@ async def health_check():
     Check API health and database connection
     """
     try:
+        if not Database.initialized:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database is not initialized"
+            )
+        
         # Test database connection
         db = Database.get_db()
         await db.command("ping")
@@ -91,8 +110,7 @@ async def health_check():
             "status": "healthy",
             "timestamp": datetime.utcnow().isoformat(),
             "database": "connected",
-            "environment": settings.ENVIRONMENT,
-            "version": settings.API_V1_STR
+            "environment": settings.ENVIRONMENT
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")

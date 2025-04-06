@@ -24,6 +24,7 @@
     "PYTHONPATH": ".",
     "ENVIRONMENT": "production",
     "PYTHON_VERSION": "3.11",
-    "CORS_ORIGINS": "https://ai-help-center-frontend-vkp9.vercel.app"
+    "CORS_ORIGINS": "https://ai-help-center-frontend-vkp9.vercel.app",
+    "MONGODB_DB_NAME": "ai_assistance"
   }
 } 
