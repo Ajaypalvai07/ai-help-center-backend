@@ -5,11 +5,9 @@ from datetime import datetime
 import logging
 from bson import ObjectId
 from core.database import get_db_dependency
-from core.auth import create_access_token, verify_password
+from core.auth import create_access_token, verify_password, get_password_hash
 from models.user import UserInDB, UserCreate, UserResponse, AuthResponse
 from middleware.auth import get_current_active_user
-from core.security import get_password_hash
-from bson.objectid import ObjectId
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -23,7 +21,8 @@ async def login(
     try:
         logger.info(f"Login attempt for user: {form_data.username}")
         
-        user_dict = await db["users"].find_one({"email": form_data.username})
+        # Find user by email
+        user_dict = await db.users.find_one({"email": form_data.username.lower().strip()})
         if not user_dict:
             logger.warning(f"Login failed: User not found - {form_data.username}")
             raise HTTPException(
@@ -31,9 +30,19 @@ async def login(
                 detail="Incorrect email or password"
             )
 
+        # Convert ObjectId to string
         user_dict["id"] = str(user_dict.pop("_id"))
-        user = UserInDB(**user_dict)
         
+        try:
+            user = UserInDB(**user_dict)
+        except Exception as e:
+            logger.error(f"Error creating UserInDB instance: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error processing user data"
+            )
+
+        # Verify password
         if not verify_password(form_data.password, user.password):
             logger.warning(f"Login failed: Invalid password for user - {form_data.username}")
             raise HTTPException(
@@ -41,16 +50,17 @@ async def login(
                 detail="Incorrect email or password"
             )
 
-        # Update last login
-        await db["users"].update_one(
+        # Update last login timestamp
+        current_time = datetime.utcnow()
+        await db.users.update_one(
             {"_id": ObjectId(user.id)},
-            {"$set": {"last_login": datetime.utcnow()}}
+            {"$set": {"last_login": current_time}}
         )
         
         # Create access token
         access_token = create_access_token(data={"sub": user.email})
         
-        # Create UserResponse object
+        # Create response
         user_response = UserResponse(
             id=user.id,
             email=user.email,
@@ -58,7 +68,7 @@ async def login(
             role=user.role,
             is_active=user.is_active,
             created_at=user.created_at,
-            last_login=datetime.utcnow(),
+            last_login=current_time,
             preferences=user.preferences
         )
         
@@ -68,13 +78,14 @@ async def login(
             token_type="bearer",
             user=user_response
         )
+        
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error during login: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred"
+            detail="An unexpected error occurred during login"
         )
 
 @router.post("/register", response_model=AuthResponse)
@@ -84,19 +95,23 @@ async def register(
 ):
     """Register a new user"""
     try:
-        logger.info(f"Registration attempt for email: {user_data.email}")
+        # Normalize email
+        email = user_data.email.lower().strip()
+        logger.info(f"Registration attempt for email: {email}")
         
-        # Check if user already exists
-        if await db["users"].find_one({"email": user_data.email}):
-            logger.warning(f"Registration failed: Email already exists - {user_data.email}")
+        # Check if user exists
+        existing_user = await db.users.find_one({"email": email})
+        if existing_user:
+            logger.warning(f"Registration failed: Email already exists - {email}")
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered"
             )
 
         # Create user document
         user_dict = user_data.dict()
         user_dict.update({
+            "email": email,  # Use normalized email
             "password": get_password_hash(user_data.password),
             "created_at": datetime.utcnow(),
             "role": "user",
@@ -106,16 +121,24 @@ async def register(
         })
 
         # Insert into database
-        result = await db["users"].insert_one(user_dict)
-        user_dict["id"] = str(result.inserted_id)
+        try:
+            result = await db.users.insert_one(user_dict)
+            user_dict["id"] = str(result.inserted_id)
+            logger.info(f"Created user document with ID: {user_dict['id']}")
+        except Exception as e:
+            logger.error(f"Database error during user creation: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user in database"
+            )
 
         # Create access token
-        access_token = create_access_token(data={"sub": user_data.email})
+        access_token = create_access_token(data={"sub": email})
         
-        # Create UserResponse object
+        # Create response
         user_response = UserResponse(
             id=user_dict["id"],
-            email=user_dict["email"],
+            email=email,
             name=user_dict["name"],
             role=user_dict["role"],
             is_active=user_dict["is_active"],
@@ -124,18 +147,19 @@ async def register(
             preferences=user_dict["preferences"]
         )
         
-        logger.info(f"Registration successful for user: {user_data.email}")
+        logger.info(f"Registration successful for user: {email}")
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",
             user=user_response
         )
+        
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create user account"
         )
 

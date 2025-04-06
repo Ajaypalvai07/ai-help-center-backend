@@ -11,16 +11,13 @@ class PyObjectId(ObjectId):
 
     @classmethod
     def validate(cls, value, values=None, config=None, field=None):
-        if not isinstance(value, ObjectId):
-            if not ObjectId.is_valid(value):
-                raise ValueError("Invalid ObjectId")
-            value = ObjectId(value)
-        return value
+        if not ObjectId.is_valid(value):
+            raise ValueError("Invalid ObjectId")
+        return ObjectId(value)
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
-        """Return the JSON Schema for the ObjectId type."""
-        return {"type": "string", "description": "MongoDB ObjectId"}
+        return {"type": "string"}
 
 class UserBase(BaseModel):
     """Base user model with common fields"""
@@ -40,7 +37,8 @@ class UserCreate(UserBase):
     password: str = Field(
         ...,
         min_length=8,
-        description="User's password (min 8 characters)"
+        description="User's password (min 8 characters)",
+        examples=["StrongP@ssw0rd"]
     )
 
 class UserLogin(BaseModel):
@@ -67,9 +65,10 @@ class User(UserBase):
     preferences: Dict = Field(default_factory=dict)
 
     model_config = ConfigDict(
+        from_attributes=True,
         populate_by_name=True,
-        arbitrary_types_allowed=True,
-        json_encoders={ObjectId: str}
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True
     )
 
 class UserInDB(User):
@@ -77,12 +76,10 @@ class UserInDB(User):
     password: str = Field(..., description="Hashed password")
 
     model_config = ConfigDict(
+        from_attributes=True,
         populate_by_name=True,
-        arbitrary_types_allowed=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat(),
-            ObjectId: str
-        }
+        json_encoders={ObjectId: str},
+        arbitrary_types_allowed=True
     )
 
 class UserResponse(BaseModel):
