@@ -35,8 +35,7 @@ class Database:
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=10000,
                 maxPoolSize=10,
-                retryWrites=True,
-                w='majority'
+                retryWrites=True
             )
 
             # Test connection
@@ -54,6 +53,16 @@ class Database:
             cls.initialized = True
             logger.info("✅ Database initialization complete")
 
+        except ServerSelectionTimeoutError as e:
+            logger.error(f"❌ Failed to connect to MongoDB server: {str(e)}")
+            if cls.client:
+                await cls.close()
+            raise RuntimeError(f"Could not connect to MongoDB server: {str(e)}")
+        except ConnectionFailure as e:
+            logger.error(f"❌ MongoDB connection failed: {str(e)}")
+            if cls.client:
+                await cls.close()
+            raise RuntimeError(f"MongoDB connection failed: {str(e)}")
         except Exception as e:
             logger.error(f"❌ Database initialization failed: {str(e)}")
             if cls.client:
