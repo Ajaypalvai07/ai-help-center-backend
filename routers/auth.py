@@ -7,6 +7,7 @@ from core.database import get_db_dependency
 from core.auth import create_access_token, verify_password
 from models.user import UserInDB, UserCreate, UserResponse
 from middleware.auth import get_current_active_user
+from core.security import get_password_hash
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
@@ -79,42 +80,53 @@ async def register(
     user_data: UserCreate,
     db: AsyncIOMotorDatabase = Depends(get_db_dependency)
 ):
-    """
-    Register a new user
-    """
+    """Register a new user"""
     try:
-        logger.info(f"Registration attempt for email: {user_data.email}")
-        
-        # Check if user exists
-        existing_user = await db["users"].find_one({"email": user_data.email})
+        # Check if user already exists
+        existing_user = await db.users.find_one({"email": user_data.email})
         if existing_user:
-            logger.warning(f"Registration failed: Email already exists - {user_data.email}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail="Email already registered"
             )
 
+        # Hash the password
+        hashed_password = get_password_hash(user_data.password)
+
         # Create user document
         user_dict = user_data.dict()
+        user_dict["password"] = hashed_password
         user_dict["created_at"] = datetime.utcnow()
-        user_dict["is_active"] = True
         user_dict["role"] = "user"
+        user_dict["is_active"] = True
         user_dict["preferences"] = {}
 
-        result = await db["users"].insert_one(user_dict)
-        
-        # Get created user
-        created_user = await db["users"].find_one({"_id": result.inserted_id})
-        
-        logger.info(f"Registration successful for user: {user_data.email}")
-        return UserResponse(**created_user)
-    except HTTPException:
-        raise
+        # Insert into database
+        result = await db.users.insert_one(user_dict)
+        user_dict["id"] = str(result.inserted_id)
+
+        # Create access token
+        access_token = create_access_token(
+            data={"sub": user_data.email}
+        )
+
+        # Return user data and token
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": UserInDB(**user_dict)
+        }
+
     except Exception as e:
-        logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
+        logger.error(f"Registration error: {str(e)}")
+        if "duplicate key error" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered"
+            )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred"
+            status_code=500,
+            detail=f"Registration failed: {str(e)}"
         )
 
 @router.get("/verify", response_model=UserResponse, summary="Verify current token")
