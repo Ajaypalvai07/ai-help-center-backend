@@ -19,32 +19,35 @@ async def login(
 ):
     """OAuth2 compatible token login"""
     try:
-        logger.info(f"Login attempt for user: {form_data.username}")
+        # Log login attempt with request details
+        logger.info(f"Login attempt - Email: {form_data.username}")
+        
+        # Normalize email
+        email = form_data.username.lower().strip()
         
         # Find user by email
-        user_dict = await db.users.find_one({"email": form_data.username.lower().strip()})
+        user_dict = await db.users.find_one({"email": email})
         if not user_dict:
-            logger.warning(f"Login failed: User not found - {form_data.username}")
+            logger.warning(f"Login failed: User not found - {email}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password"
             )
 
-        # Convert ObjectId to string
-        user_dict["id"] = str(user_dict.pop("_id"))
-        
         try:
+            # Convert ObjectId to string
+            user_dict["id"] = str(user_dict.pop("_id"))
             user = UserInDB(**user_dict)
         except Exception as e:
-            logger.error(f"Error creating UserInDB instance: {str(e)}")
+            logger.error(f"Error creating UserInDB instance: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error processing user data"
             )
 
-        # Verify password
+        # Verify password with detailed logging
         if not verify_password(form_data.password, user.password):
-            logger.warning(f"Login failed: Invalid password for user - {form_data.username}")
+            logger.warning(f"Login failed: Invalid password for user - {email}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password"
@@ -52,13 +55,21 @@ async def login(
 
         # Update last login timestamp
         current_time = datetime.utcnow()
-        await db.users.update_one(
-            {"_id": ObjectId(user.id)},
-            {"$set": {"last_login": current_time}}
-        )
-        
-        # Create access token
-        access_token = create_access_token(data={"sub": user.email})
+        try:
+            await db.users.update_one(
+                {"_id": ObjectId(user.id)},
+                {"$set": {"last_login": current_time}}
+            )
+        except Exception as e:
+            logger.error(f"Failed to update last login time: {str(e)}", exc_info=True)
+            # Continue with login process despite timestamp update failure
+
+        # Create access token with extended expiry for admin users
+        token_data = {
+            "sub": user.email,
+            "role": user.role
+        }
+        access_token = create_access_token(data=token_data)
         
         # Create response
         user_response = UserResponse(
@@ -72,7 +83,7 @@ async def login(
             preferences=user.preferences
         )
         
-        logger.info(f"Login successful for user: {user.email}")
+        logger.info(f"Login successful - User: {email}, Role: {user.role}")
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",
@@ -95,9 +106,16 @@ async def register(
 ):
     """Register a new user"""
     try:
-        # Normalize email
+        # Normalize and validate email
         email = user_data.email.lower().strip()
-        logger.info(f"Registration attempt for email: {email}")
+        logger.info(f"Registration attempt - Email: {email}")
+        
+        # Validate password strength
+        if len(user_data.password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters long"
+            )
         
         # Check if user exists
         existing_user = await db.users.find_one({"email": email})
@@ -108,32 +126,37 @@ async def register(
                 detail="Email already registered"
             )
 
-        # Create user document
-        user_dict = user_data.dict()
-        user_dict.update({
-            "email": email,  # Use normalized email
-            "password": get_password_hash(user_data.password),
-            "created_at": datetime.utcnow(),
-            "role": "user",
-            "is_active": True,
-            "preferences": {},
-            "last_login": None
-        })
-
-        # Insert into database
         try:
+            # Create user document
+            user_dict = user_data.dict()
+            user_dict.update({
+                "email": email,
+                "password": get_password_hash(user_data.password),
+                "created_at": datetime.utcnow(),
+                "role": "user",
+                "is_active": True,
+                "preferences": {},
+                "last_login": None
+            })
+
+            # Insert into database
             result = await db.users.insert_one(user_dict)
             user_dict["id"] = str(result.inserted_id)
-            logger.info(f"Created user document with ID: {user_dict['id']}")
+            logger.info(f"Created user document - ID: {user_dict['id']}")
+            
         except Exception as e:
-            logger.error(f"Database error during user creation: {str(e)}")
+            logger.error(f"Database error during user creation: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create user in database"
             )
 
         # Create access token
-        access_token = create_access_token(data={"sub": email})
+        token_data = {
+            "sub": email,
+            "role": "user"
+        }
+        access_token = create_access_token(data=token_data)
         
         # Create response
         user_response = UserResponse(
@@ -147,7 +170,7 @@ async def register(
             preferences=user_dict["preferences"]
         )
         
-        logger.info(f"Registration successful for user: {email}")
+        logger.info(f"Registration successful - User: {email}")
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",
@@ -161,6 +184,83 @@ async def register(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create user account"
+        )
+
+@router.post("/admin/login", response_model=AuthResponse)
+async def admin_login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncIOMotorDatabase = Depends(get_db_dependency)
+):
+    """Admin login endpoint"""
+    try:
+        email = form_data.username.lower().strip()
+        logger.info(f"Admin login attempt - Email: {email}")
+        
+        # Find user by email
+        user_dict = await db.users.find_one({"email": email})
+        if not user_dict or user_dict.get("role") != "admin":
+            logger.warning(f"Admin login failed: Invalid credentials or not admin - {email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+
+        try:
+            user_dict["id"] = str(user_dict.pop("_id"))
+            user = UserInDB(**user_dict)
+        except Exception as e:
+            logger.error(f"Error creating UserInDB instance: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error processing user data"
+            )
+
+        if not verify_password(form_data.password, user.password):
+            logger.warning(f"Admin login failed: Invalid password - {email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+
+        # Update last login
+        current_time = datetime.utcnow()
+        await db.users.update_one(
+            {"_id": ObjectId(user.id)},
+            {"$set": {"last_login": current_time}}
+        )
+
+        # Create admin token with extended privileges
+        token_data = {
+            "sub": user.email,
+            "role": "admin"
+        }
+        access_token = create_access_token(data=token_data)
+
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            role=user.role,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            last_login=current_time,
+            preferences=user.preferences
+        )
+
+        logger.info(f"Admin login successful - User: {email}")
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during admin login: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during login"
         )
 
 @router.get("/verify", response_model=UserResponse, summary="Verify current token")
