@@ -84,14 +84,6 @@ async def register(
     try:
         logger.info(f"Registration attempt for email: {user_data.email}")
         
-        # Ensure database connection
-        if not db:
-            logger.error("Database connection not available")
-            raise HTTPException(
-                status_code=500,
-                detail="Database connection error"
-            )
-
         # Check if user already exists
         existing_user = await db["users"].find_one({"email": user_data.email})
         if existing_user:
