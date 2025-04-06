@@ -1,6 +1,6 @@
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
+from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure, OperationFailure
 from core.config import settings
 import asyncio
 from typing import Optional
@@ -17,7 +17,14 @@ class Database:
     async def initialize(cls) -> None:
         """Initialize database connection with retries"""
         if cls.initialized and cls.db is not None:
-            return
+            try:
+                # Verify the connection is still alive
+                await cls.db.command('ping')
+                logger.info("Using existing database connection")
+                return
+            except Exception:
+                logger.warning("Existing connection is stale, reinitializing...")
+                cls.initialized = False
 
         if not settings.MONGODB_URL:
             raise ValueError("MONGODB_URL environment variable is not set")
@@ -35,19 +42,30 @@ class Database:
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=10000,
                 maxPoolSize=10,
-                retryWrites=True
+                retryWrites=True,
+                retryReads=True,
+                waitQueueTimeoutMS=5000
             )
 
-            # Test the connection
-            await cls.client.admin.command('ping')
+            # Test the connection with timeout
+            try:
+                await asyncio.wait_for(
+                    cls.client.admin.command('ping'),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                raise ConnectionFailure("Database ping timed out")
             
             # Get database instance
             cls.db = cls.client[settings.MONGODB_DB_NAME]
-            cls.initialized = True
+            
+            # Verify database access
+            await cls.db.command('ping')
             
             # Create indexes
             await cls._create_indexes()
             
+            cls.initialized = True
             logger.info("✅ MongoDB connection initialized successfully")
             
         except (ServerSelectionTimeoutError, ConnectionFailure) as e:
@@ -57,16 +75,25 @@ class Database:
             cls.initialized = False
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database connection failed"
+                detail=f"Database connection failed: {str(e)}"
             )
-        except Exception as e:
-            logger.error(f"Unexpected error initializing database: {str(e)}")
+        except OperationFailure as e:
+            logger.error(f"MongoDB operation failed: {str(e)}")
             if cls.client:
                 await cls.close()
             cls.initialized = False
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database initialization failed"
+                detail=f"Database operation failed: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error initializing database: {str(e)}", exc_info=True)
+            if cls.client:
+                await cls.close()
+            cls.initialized = False
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database initialization failed: {str(e)}"
             )
 
     @classmethod
@@ -110,9 +137,16 @@ class Database:
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """FastAPI dependency for getting database instance"""
-    if not Database.initialized:
-        await Database.initialize()
-    return Database.get_db()
+    try:
+        if not Database.initialized:
+            await Database.initialize()
+        return Database.get_db()
+    except Exception as e:
+        logger.error(f"Error in get_db_dependency: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection unavailable"
+        )
 
 async def init_db():
     """Initialize database connection"""

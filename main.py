@@ -81,26 +81,44 @@ async def shutdown_event():
 @app.get("/health")
 async def health_check() -> Dict[str, Any]:
     """Health check endpoint"""
+    response = {
+        "status": "unhealthy",
+        "database": "disconnected",
+        "version": settings.PROJECT_NAME,
+        "environment": settings.ENVIRONMENT,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
     try:
         if not Database.initialized or Database.db is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database is not initialized"
-            )
+            # Try to initialize the database
+            try:
+                await initialize_database(max_retries=1, retry_delay=1)
+            except Exception as init_error:
+                logger.error(f"Database initialization failed during health check: {str(init_error)}")
+                response["error"] = f"Database initialization failed: {str(init_error)}"
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content=response
+                )
         
         # Test database connection
         await Database.db.command("ping")
         
-        return {
+        response.update({
             "status": "healthy",
             "database": "connected",
-            "version": settings.PROJECT_NAME
-        }
+            "database_name": settings.MONGODB_DB_NAME
+        })
+        
+        return response
+        
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        raise HTTPException(
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        response["error"] = str(e)
+        return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service unavailable"
+            content=response
         )
 
 @app.get("/")
