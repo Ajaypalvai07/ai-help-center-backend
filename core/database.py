@@ -19,25 +19,38 @@ class Database:
         if cls.initialized and cls.db is not None:
             return
 
-        max_retries = 3
-        retry_delay = 1  # seconds
+        max_retries = 5
+        retry_delay = 2  # seconds
+        last_error = None
 
         for attempt in range(max_retries):
             try:
                 logger.info(f"Attempting to connect to MongoDB (attempt {attempt + 1}/{max_retries})")
                 
-                # Initialize the MongoDB client
+                # Close existing connection if any
+                if cls.client:
+                    await cls.close()
+                
+                # Initialize the MongoDB client with explicit options
                 cls.client = AsyncIOMotorClient(
                     settings.MONGODB_URL,
                     serverSelectionTimeoutMS=5000,
-                    connectTimeoutMS=10000
+                    connectTimeoutMS=10000,
+                    maxPoolSize=10,
+                    retryWrites=True,
+                    w='majority'
                 )
                 
                 # Test the connection
                 await cls.client.admin.command('ping')
+                logger.info("MongoDB ping successful")
                 
                 # Set the database
                 cls.db = cls.client[settings.MONGODB_DB_NAME]
+                
+                # Verify database access
+                await cls.db.command('ping')
+                logger.info("Database access verified")
                 
                 # Create indexes
                 await cls._create_indexes()
@@ -47,20 +60,22 @@ class Database:
                 return
                 
             except (ServerSelectionTimeoutError, ConnectionFailure) as e:
-                logger.error(f"Failed to connect to MongoDB (attempt {attempt + 1}): {str(e)}")
+                last_error = str(e)
+                logger.error(f"Failed to connect to MongoDB (attempt {attempt + 1}): {last_error}")
                 if cls.client:
                     await cls.close()
                 if attempt < max_retries - 1:
                     logger.info(f"Retrying in {retry_delay} seconds...")
                     await asyncio.sleep(retry_delay)
-                else:
-                    logger.error("❌ All connection attempts failed")
-                    raise RuntimeError(f"Failed to initialize database after {max_retries} attempts: {str(e)}")
             except Exception as e:
-                logger.error(f"❌ Unexpected error during database initialization: {str(e)}")
+                last_error = str(e)
+                logger.error(f"❌ Unexpected error during database initialization: {last_error}")
                 if cls.client:
                     await cls.close()
-                raise RuntimeError(f"Database initialization failed: {str(e)}")
+                raise RuntimeError(f"Database initialization failed: {last_error}")
+
+        # If we get here, all retries failed
+        raise RuntimeError(f"Failed to initialize database after {max_retries} attempts. Last error: {last_error}")
 
     @classmethod
     async def _create_indexes(cls) -> None:
@@ -100,9 +115,16 @@ class Database:
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """FastAPI dependency for database access"""
-    if not Database.initialized or Database.db is None:
-        await Database.initialize()
-    return Database.get_db()
+    try:
+        if not Database.initialized or Database.db is None:
+            await Database.initialize()
+        return Database.get_db()
+    except Exception as e:
+        logger.error(f"Failed to get database connection: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database connection failed: {str(e)}"
+        )
 
 # Initialize database connection
 async def init_db():
