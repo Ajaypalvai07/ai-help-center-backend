@@ -22,63 +22,43 @@ class Database:
         if not settings.MONGODB_URL:
             raise ValueError("MONGODB_URL environment variable is not set")
 
-        max_retries = 5
-        retry_delay = 2  # seconds
-        last_error = None
+        try:
+            # Close any existing connection
+            if cls.client:
+                await cls.close()
 
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Attempting to connect to MongoDB (attempt {attempt + 1}/{max_retries})")
-                
-                # Close existing connection if any
-                if cls.client:
-                    await cls.close()
-                
-                # Initialize the MongoDB client with explicit options
-                cls.client = AsyncIOMotorClient(
-                    settings.MONGODB_URL,
-                    serverSelectionTimeoutMS=5000,
-                    connectTimeoutMS=10000,
-                    maxPoolSize=10,
-                    retryWrites=True,
-                    w='majority'
-                )
-                
-                # Test the connection
-                await cls.client.admin.command('ping')
-                logger.info("MongoDB ping successful")
-                
-                # Set the database
-                cls.db = cls.client[settings.MONGODB_DB_NAME]
-                
-                # Verify database access
-                await cls.db.command('ping')
-                logger.info("Database access verified")
-                
-                # Create indexes
-                await cls._create_indexes()
-                
-                cls.initialized = True
-                logger.info("✅ Successfully connected to MongoDB")
-                return
-                
-            except (ServerSelectionTimeoutError, ConnectionFailure) as e:
-                last_error = str(e)
-                logger.error(f"Failed to connect to MongoDB (attempt {attempt + 1}): {last_error}")
-                if cls.client:
-                    await cls.close()
-                if attempt < max_retries - 1:
-                    logger.info(f"Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-            except Exception as e:
-                last_error = str(e)
-                logger.error(f"❌ Unexpected error during database initialization: {last_error}")
-                if cls.client:
-                    await cls.close()
-                raise RuntimeError(f"Database initialization failed: {last_error}")
+            logger.info("Initializing MongoDB connection...")
+            
+            # Create MongoDB client with explicit options
+            cls.client = AsyncIOMotorClient(
+                settings.MONGODB_URL,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=10000,
+                maxPoolSize=10,
+                retryWrites=True,
+                w='majority'
+            )
 
-        # If we get here, all retries failed
-        raise RuntimeError(f"Failed to initialize database after {max_retries} attempts. Last error: {last_error}")
+            # Test connection
+            await cls.client.admin.command('ping')
+            logger.info("MongoDB connection successful")
+
+            # Initialize database
+            cls.db = cls.client[settings.MONGODB_DB_NAME]
+            await cls.db.command('ping')
+            logger.info(f"Connected to database: {settings.MONGODB_DB_NAME}")
+
+            # Create indexes
+            await cls._create_indexes()
+
+            cls.initialized = True
+            logger.info("✅ Database initialization complete")
+
+        except Exception as e:
+            logger.error(f"❌ Database initialization failed: {str(e)}")
+            if cls.client:
+                await cls.close()
+            raise RuntimeError(f"Failed to initialize database: {str(e)}")
 
     @classmethod
     async def _create_indexes(cls) -> None:
@@ -90,7 +70,7 @@ class Database:
             # Create unique index on email for users collection
             await cls.db["users"].create_index("email", unique=True)
             
-            # Create indexes for other collections as needed
+            # Create indexes for other collections
             await cls.db["messages"].create_index([("userId", 1), ("timestamp", -1)])
             await cls.db["feedback"].create_index("userId")
             
@@ -110,7 +90,7 @@ class Database:
     async def close(cls) -> None:
         """Close database connection"""
         if cls.client:
-            await cls.client.close()
+            cls.client.close()
             cls.client = None
             cls.db = None
             cls.initialized = False
@@ -125,11 +105,7 @@ async def get_db_dependency() -> AsyncIOMotorDatabase:
 # Initialize database connection
 async def init_db():
     """Initialize database connection"""
-    try:
-        await Database.initialize()
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}")
-        raise
+    await Database.initialize()
 
 # Close database connection
 async def close_db():

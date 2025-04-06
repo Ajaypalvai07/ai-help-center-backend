@@ -37,20 +37,36 @@ app.include_router(admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["a
 app.include_router(categories.router, prefix=f"{settings.API_V1_STR}/categories", tags=["categories"])
 app.include_router(feedback.router, prefix=f"{settings.API_V1_STR}/feedback", tags=["feedback"])
 
+async def initialize_database(max_retries: int = 5, retry_delay: int = 2) -> None:
+    """Initialize database with retries"""
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Database initialization attempt {attempt + 1}/{max_retries}")
+            await init_db()
+            logger.info("✅ Database initialized successfully")
+            return
+        except Exception as e:
+            logger.error(f"Database initialization attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error("❌ All database initialization attempts failed")
+                raise
+
 @app.on_event("startup")
 async def startup_event():
-    """
-    Initialize services on startup
-    """
+    """Initialize services on startup"""
     try:
         logger.info("🚀 Starting up application...")
         logger.info(f"Environment: {settings.ENVIRONMENT}")
-        logger.info(f"Debug mode: {settings.ENVIRONMENT == 'development'}")
+        logger.info(f"MongoDB URL configured: {'Yes' if settings.MONGODB_URL else 'No'}")
         
-        # Initialize database
-        logger.info("Initializing database connection...")
-        await init_db()
-        logger.info("✅ Database initialized successfully")
+        # Initialize database with retries
+        await initialize_database()
+        
+        # Log successful startup
+        logger.info("✨ Application startup complete")
         
     except Exception as e:
         logger.error(f"❌ Failed to initialize services: {str(e)}")
@@ -58,9 +74,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """
-    Cleanup on shutdown
-    """
+    """Cleanup on shutdown"""
     try:
         logger.info("Shutting down application...")
         await Database.close()
@@ -70,12 +84,11 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    """
-    Check API health and database connection
-    """
+    """Check API health and database connection"""
     try:
         if not Database.initialized:
-            await init_db()
+            # Try to initialize database if not already initialized
+            await initialize_database(max_retries=3, retry_delay=1)
         
         # Test database connection
         db = Database.get_db()
@@ -91,31 +104,33 @@ async def health_check():
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Service unavailable: {str(e)}"
+            detail=f"Service unavailable: Database connection failed - {str(e)}"
         )
 
 @app.get("/")
 async def root():
-    """
-    Root endpoint
-    """
+    """Root endpoint"""
     return {
         "name": settings.PROJECT_NAME,
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT
     }
 
-# Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler"""
-    logger.error(f"Global error handler caught: {str(exc)}")
-    return {
-        "detail": str(exc),
-        "path": request.url.path,
-        "method": request.method,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    error_msg = str(exc)
+    logger.error(f"Global error handler caught: {error_msg}")
+    logger.error(f"Request path: {request.url.path}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": error_msg,
+            "path": request.url.path,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
 
 # For local development
 if __name__ == "__main__":
