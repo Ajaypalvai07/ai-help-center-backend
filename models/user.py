@@ -104,3 +104,11 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class AuthResponse(BaseModel):
+    """Authentication response model"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field(..., description="Token type (bearer)")
+    user: UserResponse = Field(..., description="User information")

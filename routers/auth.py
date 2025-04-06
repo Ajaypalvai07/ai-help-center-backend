@@ -3,16 +3,18 @@ from fastapi.security import OAuth2PasswordRequestForm
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime
 import logging
+from bson import ObjectId
 from core.database import get_db_dependency
 from core.auth import create_access_token, verify_password
-from models.user import UserInDB, UserCreate, UserResponse
+from models.user import UserInDB, UserCreate, UserResponse, AuthResponse
 from middleware.auth import get_current_active_user
 from core.security import get_password_hash
+from bson.objectid import ObjectId
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
-
-@router.post("/token", summary="Login to get access token")
+@router.post("/token", response_model=AuthResponse, summary="Login to get access token")
+@router.post("/token", response_model=AuthResponse, summary="Login to get access token")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncIOMotorDatabase = Depends(get_db_dependency)
@@ -31,7 +33,11 @@ async def login(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
             )
+        # Convert ObjectId to string
+        user_dict["id"] = str(user_dict.pop("_id"))
 
+        # Convert ObjectId to string
+        user_dict["id"] = str(user_dict.pop("_id"))
         user = UserInDB(**user_dict)
         
         # Verify password
@@ -41,41 +47,47 @@ async def login(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
             )
-
+            {"_id": ObjectId(user.id)},
         # Update last login
         await db["users"].update_one(
-            {"_id": user.id},
+            {"_id": ObjectId(user.id)},
             {"$set": {"last_login": datetime.utcnow()}}
         )
         
-        # Create access token
-        access_token = create_access_token(data={"sub": user.email})
+        # Create UserResponse object
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            role=user.role,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            last_login=user.last_login,
+            preferences=user.preferences
+        )
         
         logger.info(f"Login successful for user: {user.email}")
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": UserResponse(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                role=user.role,
-                is_active=user.is_active,
-                created_at=user.created_at,
-                last_login=user.last_login,
-                preferences=user.preferences
-            )
-        }
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
+        logger.info(f"Login successful for user: {user.email}")
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error during login: {str(e)}", exc_info=True)
+@router.post("/register", response_model=AuthResponse, summary="Register a new user")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred"
         )
 
-@router.post("/register", response_model=dict, summary="Register a new user")
+@router.post("/register", response_model=AuthResponse, summary="Register a new user")
 async def register(
     user_data: UserCreate,
     db: AsyncIOMotorDatabase = Depends(get_db_dependency)
@@ -114,33 +126,33 @@ async def register(
             raise HTTPException(
                 status_code=500,
                 detail="Failed to create user account"
-            )
 
-        # Create access token
         access_token = create_access_token(
             data={"sub": user_data.email}
-        )
+            id=user_dict["id"],
 
-        logger.info(f"Registration successful for user: {user_data.email}")
-        
         # Create UserResponse object
         user_response = UserResponse(
-            id=str(result.inserted_id),
+            id=user_dict["id"],
             email=user_dict["email"],
             name=user_dict["name"],
             role=user_dict["role"],
             is_active=user_dict["is_active"],
             created_at=user_dict["created_at"],
-            last_login=user_dict["last_login"],
-            preferences=user_dict["preferences"]
-        )
+        logger.info(f"Registration successful for user: {user_data.email}")
         
-        # Return response
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": user_response
-        }
+        # Return AuthResponse
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
+        # Return AuthResponse
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
 
     except HTTPException as he:
         raise he
