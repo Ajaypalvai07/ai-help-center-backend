@@ -20,33 +20,53 @@ class Database:
             return
 
         try:
-            # Ensure we have an event loop
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
             logger.info("Connecting to MongoDB...")
+            
+            # Create client with proper settings for Atlas
             cls.client = AsyncIOMotorClient(
                 settings.MONGODB_URL,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=10000,
                 maxPoolSize=10,
-                retryWrites=True
+                retryWrites=True,
+                w='majority',
+                journal=True
             )
             
-            # Test the connection
-            await cls.db.command('ping')
-            
+            # Get database instance
             cls.db = cls.client[settings.MONGODB_DB_NAME]
-            cls.initialized = True
             
-            logger.info("Successfully connected to MongoDB")
+            # Test the connection
+            try:
+                await cls.db.command('ping')
+                logger.info("Successfully connected to MongoDB Atlas")
+            except Exception as e:
+                logger.error(f"Failed to ping database: {str(e)}")
+                raise
+
+            cls.initialized = True
             
             # Create indexes
             await cls._create_indexes()
             
+        except ServerSelectionTimeoutError as e:
+            logger.error(f"MongoDB server selection timeout: {str(e)}")
+            if cls.client:
+                cls.client.close()
+            cls.initialized = False
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not connect to database server"
+            )
+        except ConnectionFailure as e:
+            logger.error(f"MongoDB connection failure: {str(e)}")
+            if cls.client:
+                cls.client.close()
+            cls.initialized = False
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to establish database connection"
+            )
         except Exception as e:
             logger.error(f"Failed to initialize database: {str(e)}")
             if cls.client:
@@ -54,7 +74,7 @@ class Database:
             cls.initialized = False
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database connection failed"
+                detail="Database initialization failed"
             )
 
     @classmethod
