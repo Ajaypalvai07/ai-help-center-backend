@@ -1,9 +1,12 @@
 from typing import List
 import os
 from dotenv import load_dotenv
+import logging
 
 # Load environment variables from .env file
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class Settings:
     # API Configuration
@@ -14,7 +17,7 @@ class Settings:
     ENVIRONMENT: str = os.environ.get("ENVIRONMENT", "production")
 
     # MongoDB settings
-    MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+    MONGODB_URL: str = os.getenv("MONGODB_URL")
     MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "ai_assistance")
 
     # JWT settings
@@ -34,6 +37,17 @@ class Settings:
         "http://localhost:5173"
     ]
 
+    def validate_settings(self) -> None:
+        """Validate required settings are properly configured"""
+        if not self.MONGODB_URL:
+            raise ValueError("MONGODB_URL environment variable is not set")
+        
+        # Log non-sensitive configuration info
+        logger.info(f"Environment: {self.ENVIRONMENT}")
+        logger.info(f"API Version: {self.API_V1_STR}")
+        logger.info(f"Database Name: {self.MONGODB_DB_NAME}")
+        logger.info(f"CORS Origins: {self.get_cors_origins()}")
+
     def get_cors_origins(self) -> List[str]:
         """Get the list of CORS origins."""
         env_origins = os.getenv("CORS_ORIGINS")
@@ -48,9 +62,16 @@ class Settings:
                 if isinstance(additional_origins, list):
                     return list(set(self.DEFAULT_CORS_ORIGINS + additional_origins))
             except Exception as e:
-                print(f"Error parsing CORS_ORIGINS: {e}")
+                logger.error(f"Error parsing CORS_ORIGINS: {e}")
                 return self.DEFAULT_CORS_ORIGINS
         return self.DEFAULT_CORS_ORIGINS
 
 # Initialize settings
 settings = Settings()
+
+# Validate settings on import
+try:
+    settings.validate_settings()
+except Exception as e:
+    logger.error(f"Configuration error: {str(e)}")
+    raise
