@@ -39,6 +39,7 @@ app.include_router(feedback.router, prefix=f"{settings.API_V1_STR}/feedback", ta
 
 async def initialize_database(max_retries: int = 5, retry_delay: int = 2) -> None:
     """Initialize database with retries"""
+    last_error = None
     for attempt in range(max_retries):
         try:
             logger.info(f"Database initialization attempt {attempt + 1}/{max_retries}")
@@ -46,13 +47,14 @@ async def initialize_database(max_retries: int = 5, retry_delay: int = 2) -> Non
             logger.info("✅ Database initialized successfully")
             return
         except Exception as e:
-            logger.error(f"Database initialization attempt {attempt + 1} failed: {str(e)}")
+            last_error = str(e)
+            logger.error(f"Database initialization attempt {attempt + 1} failed: {last_error}")
             if attempt < max_retries - 1:
                 logger.info(f"Retrying in {retry_delay} seconds...")
                 await asyncio.sleep(retry_delay)
             else:
                 logger.error("❌ All database initialization attempts failed")
-                raise
+                raise RuntimeError(f"Failed to initialize database after {max_retries} attempts. Last error: {last_error}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -86,7 +88,7 @@ async def shutdown_event():
 async def health_check():
     """Check API health and database connection"""
     try:
-        if not Database.initialized:
+        if not Database.initialized or Database.db is None:
             # Try to initialize database if not already initialized
             await initialize_database(max_retries=3, retry_delay=1)
         

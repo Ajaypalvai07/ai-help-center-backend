@@ -24,7 +24,7 @@ class Database:
 
         try:
             # Close any existing connection
-            if cls.client:
+            if cls.client is not None:
                 await cls.close()
 
             logger.info("Initializing MongoDB connection...")
@@ -55,24 +55,24 @@ class Database:
 
         except ServerSelectionTimeoutError as e:
             logger.error(f"❌ Failed to connect to MongoDB server: {str(e)}")
-            if cls.client:
+            if cls.client is not None:
                 await cls.close()
             raise RuntimeError(f"Could not connect to MongoDB server: {str(e)}")
         except ConnectionFailure as e:
             logger.error(f"❌ MongoDB connection failed: {str(e)}")
-            if cls.client:
+            if cls.client is not None:
                 await cls.close()
             raise RuntimeError(f"MongoDB connection failed: {str(e)}")
         except Exception as e:
             logger.error(f"❌ Database initialization failed: {str(e)}")
-            if cls.client:
+            if cls.client is not None:
                 await cls.close()
             raise RuntimeError(f"Failed to initialize database: {str(e)}")
 
     @classmethod
     async def _create_indexes(cls) -> None:
         """Create necessary indexes"""
-        if not cls.db:
+        if cls.db is None:
             raise RuntimeError("Database not initialized")
             
         try:
@@ -98,7 +98,7 @@ class Database:
     @classmethod
     async def close(cls) -> None:
         """Close database connection"""
-        if cls.client:
+        if cls.client is not None:
             cls.client.close()
             cls.client = None
             cls.db = None
@@ -107,7 +107,7 @@ class Database:
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """FastAPI dependency for database access"""
-    if not Database.initialized:
+    if not Database.initialized or Database.db is None:
         await Database.initialize()
     return Database.get_db()
 
