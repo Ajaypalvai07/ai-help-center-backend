@@ -30,6 +30,9 @@ wheels/
 *.env
 .env.local
 .env.*.local
+.env.development
+.env.production
+.env.test
 
 # IDE
 .idea/

@@ -19,6 +19,9 @@ class Database:
         if cls.initialized and cls.db is not None:
             return
 
+        if not settings.MONGODB_URL:
+            raise ValueError("MONGODB_URL environment variable is not set")
+
         max_retries = 5
         retry_delay = 2  # seconds
         last_error = None
@@ -87,9 +90,9 @@ class Database:
             # Create unique index on email for users collection
             await cls.db["users"].create_index("email", unique=True)
             
-            # Create indexes for other collections
-            await cls.db["messages"].create_index("userId")
-            await cls.db["messages"].create_index("timestamp")
+            # Create indexes for other collections as needed
+            await cls.db["messages"].create_index([("userId", 1), ("timestamp", -1)])
+            await cls.db["feedback"].create_index("userId")
             
             logger.info("✅ Database indexes created successfully")
         except Exception as e:
@@ -115,23 +118,22 @@ class Database:
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """FastAPI dependency for database access"""
-    try:
-        if not Database.initialized or Database.db is None:
-            await Database.initialize()
-        return Database.get_db()
-    except Exception as e:
-        logger.error(f"Failed to get database connection: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Database connection failed: {str(e)}"
-        )
+    if not Database.initialized:
+        await Database.initialize()
+    return Database.get_db()
 
 # Initialize database connection
 async def init_db():
-    await Database.initialize()
+    """Initialize database connection"""
+    try:
+        await Database.initialize()
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        raise
 
 # Close database connection
 async def close_db():
+    """Close database connection"""
     await Database.close()
 
 def get_db():

@@ -12,20 +12,13 @@ import sys
 import asyncio
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url=f"{settings.API_V1_STR}/docs",
-    redoc_url=f"{settings.API_V1_STR}/redoc",
+    version="1.0.0"
 )
 
 # Configure CORS
@@ -50,32 +43,17 @@ async def startup_event():
     Initialize services on startup
     """
     try:
-        logger.info("🚀 Starting application...")
+        logger.info("🚀 Starting up application...")
         logger.info(f"Environment: {settings.ENVIRONMENT}")
-        logger.info(f"MongoDB URL configured: {'Yes' if settings.MONGODB_URL else 'No'}")
+        logger.info(f"Debug mode: {settings.ENVIRONMENT == 'development'}")
         
-        # Initialize database with retries
-        retry_count = 0
-        max_retries = 3
-        while retry_count < max_retries:
-            try:
-                await init_db()
-                logger.info("✅ Database initialized successfully")
-                break
-            except Exception as e:
-                retry_count += 1
-                logger.error(f"Database initialization attempt {retry_count} failed: {str(e)}")
-                if retry_count == max_retries:
-                    logger.error("❌ All database initialization attempts failed")
-                    raise
-                await asyncio.sleep(2)  # Wait before retrying
+        # Initialize database
+        logger.info("Initializing database connection...")
+        await init_db()
+        logger.info("✅ Database initialized successfully")
         
-        # Log CORS settings
-        logger.info(f"CORS Origins: {settings.get_cors_origins()}")
-        
-        logger.info("✨ API startup complete")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize application: {str(e)}")
+        logger.error(f"❌ Failed to initialize services: {str(e)}")
         raise
 
 @app.on_event("shutdown")
@@ -84,11 +62,11 @@ async def shutdown_event():
     Cleanup on shutdown
     """
     try:
-        logger.info("Shutting down API...")
+        logger.info("Shutting down application...")
         await Database.close()
-        logger.info("✅ Cleaned up resources")
+        logger.info("✅ Cleanup completed")
     except Exception as e:
-        logger.error(f"❌ Error during cleanup: {str(e)}")
+        logger.error(f"❌ Error during shutdown: {str(e)}")
 
 @app.get("/health")
 async def health_check():
@@ -97,10 +75,7 @@ async def health_check():
     """
     try:
         if not Database.initialized:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database is not initialized"
-            )
+            await init_db()
         
         # Test database connection
         db = Database.get_db()
@@ -126,8 +101,7 @@ async def root():
     """
     return {
         "name": settings.PROJECT_NAME,
-        "version": settings.API_V1_STR,
-        "docs_url": f"{settings.API_V1_STR}/docs",
+        "version": "1.0.0",
         "environment": settings.ENVIRONMENT
     }
 
@@ -135,17 +109,13 @@ async def root():
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler"""
-    error_msg = str(exc)
-    logger.error(f"Global error handler caught: {error_msg}")
-    logger.error(f"Request path: {request.url.path}")
-    
-    if isinstance(exc, HTTPException):
-        raise exc
-    
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Service unavailable"
-    )
+    logger.error(f"Global error handler caught: {str(exc)}")
+    return {
+        "detail": str(exc),
+        "path": request.url.path,
+        "method": request.method,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 # For local development
 if __name__ == "__main__":
