@@ -16,7 +16,7 @@ class Database:
     @classmethod
     async def initialize(cls) -> None:
         """Initialize database connection."""
-        if cls.initialized:
+        if cls.db is not None:
             return
 
         try:
@@ -29,8 +29,7 @@ class Database:
                 connectTimeoutMS=10000,
                 maxPoolSize=10,
                 retryWrites=True,
-                w='majority',
-                journal=True
+                w='majority'
             )
             
             # Get database instance
@@ -44,37 +43,19 @@ class Database:
                 logger.error(f"Failed to ping database: {str(e)}")
                 raise
 
-            cls.initialized = True
-            
             # Create indexes
             await cls._create_indexes()
+            cls.initialized = True
             
-        except ServerSelectionTimeoutError as e:
-            logger.error(f"MongoDB server selection timeout: {str(e)}")
-            if cls.client:
-                cls.client.close()
-            cls.initialized = False
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Could not connect to database server"
-            )
-        except ConnectionFailure as e:
-            logger.error(f"MongoDB connection failure: {str(e)}")
-            if cls.client:
-                cls.client.close()
-            cls.initialized = False
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to establish database connection"
-            )
         except Exception as e:
             logger.error(f"Failed to initialize database: {str(e)}")
             if cls.client:
                 cls.client.close()
+            cls.db = None
             cls.initialized = False
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database initialization failed"
+                detail=f"Database initialization failed: {str(e)}"
             )
 
     @classmethod
@@ -110,7 +91,7 @@ class Database:
     @classmethod
     def get_db(cls) -> AsyncIOMotorDatabase:
         """Get database instance."""
-        if not cls.initialized or not cls.db:
+        if cls.db is None:
             raise RuntimeError("Database not initialized. Call initialize() first.")
         return cls.db
 
@@ -137,11 +118,14 @@ async def get_database() -> AsyncIOMotorDatabase:
     return db.get_db()
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
-    """Dependency to get database instance."""
+    """FastAPI dependency for database access."""
     try:
-        if not Database.initialized:
+        if Database.db is None:
             await Database.initialize()
         return Database.get_db()
     except Exception as e:
         logger.error(f"Error getting database connection: {str(e)}")
-        raise 
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        ) 

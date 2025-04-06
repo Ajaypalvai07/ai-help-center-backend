@@ -25,7 +25,7 @@
     "ENVIRONMENT": "production",
     "PYTHON_VERSION": "3.11",
     "CORS_ORIGINS": "https://ai-help-center-frontend-vkp9.vercel.app",
-    "MONGODB_URL": "mongodb+srv://Ajay07:<db_password>@ai-assistant.sts35.mongodb.net/?retryWrites=true&w=majority&appName=ai-assistant",
+    "MONGODB_URL": "mongodb+srv://Ajay07:Ajay18239@ai-assistant.sts35.mongodb.net/?retryWrites=true&w=majority&appName=ai-assistant&maxPoolSize=10&serverSelectionTimeoutMS=5000&connectTimeoutMS=10000",
     "MONGODB_DB_NAME": "ai_assistance"
   }
 } 
