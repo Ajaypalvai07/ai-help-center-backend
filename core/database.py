@@ -20,6 +20,13 @@ class Database:
             return
 
         try:
+            # Ensure we have an event loop
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
             logger.info("Connecting to MongoDB...")
             cls.client = AsyncIOMotorClient(
                 settings.MONGODB_URL,
@@ -30,7 +37,7 @@ class Database:
             )
             
             # Test the connection
-            await cls.client.admin.command('ping')
+            await cls.db.command('ping')
             
             cls.db = cls.client[settings.MONGODB_DB_NAME]
             cls.initialized = True
@@ -41,9 +48,9 @@ class Database:
             await cls._create_indexes()
             
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB: {str(e)}")
-            cls.client = None
-            cls.db = None
+            logger.error(f"Failed to initialize database: {str(e)}")
+            if cls.client:
+                cls.client.close()
             cls.initialized = False
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -69,7 +76,7 @@ class Database:
     @classmethod
     async def close(cls) -> None:
         """Close database connection."""
-        if cls.client is not None:
+        if cls.client:
             try:
                 cls.client.close()
                 cls.client = None
@@ -83,11 +90,8 @@ class Database:
     @classmethod
     def get_db(cls) -> AsyncIOMotorDatabase:
         """Get database instance."""
-        if cls.db is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database not initialized"
-            )
+        if not cls.initialized or not cls.db:
+            raise RuntimeError("Database not initialized. Call initialize() first.")
         return cls.db
 
 # Create a singleton instance
@@ -106,7 +110,7 @@ def get_db():
     """Get database instance (sync version)"""
     return db.get_db()
 
-async def get_database():
+async def get_database() -> AsyncIOMotorDatabase:
     """Get database instance (async version)"""
     if not db.initialized:
         await db.initialize()
@@ -114,6 +118,10 @@ async def get_database():
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """Dependency to get database instance."""
-    if not Database.initialized:
-        await Database.initialize()
-    return Database.get_db() 
+    try:
+        if not Database.initialized:
+            await Database.initialize()
+        return Database.get_db()
+    except Exception as e:
+        logger.error(f"Error getting database connection: {str(e)}")
+        raise 

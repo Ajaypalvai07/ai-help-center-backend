@@ -82,9 +82,20 @@ async def register(
 ):
     """Register a new user"""
     try:
+        logger.info(f"Registration attempt for email: {user_data.email}")
+        
+        # Ensure database connection
+        if not db:
+            logger.error("Database connection not available")
+            raise HTTPException(
+                status_code=500,
+                detail="Database connection error"
+            )
+
         # Check if user already exists
-        existing_user = await db.users.find_one({"email": user_data.email})
+        existing_user = await db["users"].find_one({"email": user_data.email})
         if existing_user:
+            logger.warning(f"Registration failed: Email already exists - {user_data.email}")
             raise HTTPException(
                 status_code=400,
                 detail="Email already registered"
@@ -102,14 +113,23 @@ async def register(
         user_dict["preferences"] = {}
 
         # Insert into database
-        result = await db.users.insert_one(user_dict)
-        user_dict["id"] = str(result.inserted_id)
+        try:
+            result = await db["users"].insert_one(user_dict)
+            user_dict["id"] = str(result.inserted_id)
+        except Exception as db_error:
+            logger.error(f"Database error during user creation: {str(db_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create user account"
+            )
 
         # Create access token
         access_token = create_access_token(
             data={"sub": user_data.email}
         )
 
+        logger.info(f"Registration successful for user: {user_data.email}")
+        
         # Return user data and token
         return {
             "access_token": access_token,
@@ -117,13 +137,10 @@ async def register(
             "user": UserInDB(**user_dict)
         }
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        logger.error(f"Registration error: {str(e)}")
-        if "duplicate key error" in str(e).lower():
-            raise HTTPException(
-                status_code=400,
-                detail="Email already registered"
-            )
+        logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Registration failed: {str(e)}"
