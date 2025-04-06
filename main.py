@@ -3,13 +3,14 @@ from fastapi import FastAPI, HTTPException, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
-from core.database import Database, init_db
+from core.database import Database, init_db, close_db
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from core.logging_config import configure_logging
 from routers import auth, chat, admin, categories, feedback
 from datetime import datetime
 import sys
 import asyncio
+from typing import Dict, Any
 
 # Configure logging
 configure_logging()
@@ -18,7 +19,9 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    version="1.0.0"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # Configure CORS
@@ -47,92 +50,71 @@ async def initialize_database(max_retries: int = 5, retry_delay: int = 2) -> Non
             logger.info("✅ Database initialized successfully")
             return
         except Exception as e:
-            last_error = str(e)
-            logger.error(f"Database initialization attempt {attempt + 1} failed: {last_error}")
+            last_error = e
+            logger.error(f"Database initialization attempt {attempt + 1} failed: {str(e)}")
             if attempt < max_retries - 1:
                 logger.info(f"Retrying in {retry_delay} seconds...")
                 await asyncio.sleep(retry_delay)
-            else:
-                logger.error("❌ All database initialization attempts failed")
-                raise RuntimeError(f"Failed to initialize database after {max_retries} attempts. Last error: {last_error}")
+    
+    logger.error(f"❌ All database initialization attempts failed. Last error: {str(last_error)}")
+    raise RuntimeError(f"Failed to initialize database after {max_retries} attempts: {str(last_error)}")
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup"""
+    """Application startup: initialize database connection"""
     try:
-        logger.info("🚀 Starting up application...")
-        logger.info(f"Environment: {settings.ENVIRONMENT}")
-        logger.info(f"MongoDB URL configured: {'Yes' if settings.MONGODB_URL else 'No'}")
-        
-        # Initialize database with retries
+        logger.info("Starting up application...")
         await initialize_database()
-        
-        # Log successful startup
-        logger.info("✨ Application startup complete")
-        
     except Exception as e:
-        logger.error(f"❌ Failed to initialize services: {str(e)}")
+        logger.error(f"Startup failed: {str(e)}")
         raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup on shutdown"""
+    """Application shutdown: cleanup"""
     try:
         logger.info("Shutting down application...")
-        await Database.close()
-        logger.info("✅ Cleanup completed")
+        await close_db()
     except Exception as e:
-        logger.error(f"❌ Error during shutdown: {str(e)}")
+        logger.error(f"Error during shutdown: {str(e)}")
 
 @app.get("/health")
-async def health_check():
-    """Check API health and database connection"""
+async def health_check() -> Dict[str, Any]:
+    """Health check endpoint"""
     try:
         if not Database.initialized or Database.db is None:
-            # Try to initialize database if not already initialized
-            await initialize_database(max_retries=3, retry_delay=1)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database is not initialized"
+            )
         
         # Test database connection
-        db = Database.get_db()
-        await db.command("ping")
+        await Database.db.command("ping")
         
         return {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
             "database": "connected",
-            "environment": settings.ENVIRONMENT
+            "version": settings.PROJECT_NAME
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Service unavailable: Database connection failed - {str(e)}"
+            detail="Service unavailable"
         )
 
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {
-        "name": settings.PROJECT_NAME,
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT
-    }
+    return {"message": "Welcome to AI Help Center API", "version": "1.0.0"}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler"""
-    error_msg = str(exc)
-    logger.error(f"Global error handler caught: {error_msg}")
-    logger.error(f"Request path: {request.url.path}")
-    
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content={
-            "detail": error_msg,
-            "path": request.url.path,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    )
+    logger.error(f"Global error handler caught: {str(exc)}", exc_info=True)
+    return {
+        "detail": "An unexpected error occurred. Please try again later."
+    }
 
 # For local development
 if __name__ == "__main__":
