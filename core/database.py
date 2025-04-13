@@ -30,6 +30,7 @@ class Database:
     """Database connection manager"""
     client: Optional[AsyncIOMotorClient] = None
     db: Optional[AsyncIOMotorDatabase] = None
+    initialized: bool = False  # Add this line
     json_encoder = JSONEncoder()
 
     @classmethod
@@ -49,7 +50,10 @@ class Database:
             await cls.client.admin.command('ping')
             logger.info(f"Successfully connected to MongoDB at {settings.get_mongodb_url()}")
             logger.info(f"Using database: {settings.MONGODB_DB_NAME}")
-            
+
+            await cls._create_indexes()  # Optional but good to call here
+            cls.initialized = True  # Set initialized to True
+
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {str(e)}")
             raise
@@ -58,18 +62,12 @@ class Database:
     async def _create_indexes(cls) -> None:
         """Create database indexes"""
         try:
-            # Users collection indexes
             await cls.db.users.create_index("email", unique=True)
             await cls.db.users.create_index("role")
-            
-            # Messages collection indexes
             await cls.db.messages.create_index([("user_id", 1), ("created_at", -1)])
             await cls.db.messages.create_index("category")
-            
-            # Feedback collection indexes
             await cls.db.feedback.create_index([("message_id", 1), ("user_id", 1)])
             await cls.db.feedback.create_index("created_at")
-            
             logger.info("✅ Database indexes created successfully")
         except Exception as e:
             logger.error(f"❌ Failed to create indexes: {str(e)}")
@@ -77,19 +75,19 @@ class Database:
 
     @classmethod
     def get_db(cls) -> AsyncIOMotorDatabase:
-        """Get database instance"""
         if cls.db is None:
             raise RuntimeError("Database not initialized. Call initialize() first.")
         return cls.db
 
     @classmethod
     async def close(cls) -> None:
-        """Close database connection"""
         if cls.client is not None:
             cls.client.close()
             cls.client = None
             cls.db = None
+            cls.initialized = False
             logger.info("Closed MongoDB connection")
+
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """FastAPI dependency for database access"""
