@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from core.config import settings
-from models.user import UserInDB, User
+from models.user import UserInDB
 from core.database import get_db_dependency
 from core.auth import decode_token
 from motor.motor_asyncio import AsyncIOMotorDatabase
