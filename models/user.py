@@ -6,7 +6,7 @@ from .base import PyObjectId, MongoBaseModel, BaseDBModel
 class UserBase(MongoBaseModel):
     """Base user model"""
     email: EmailStr = Field(..., description="User's email address")
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str = Field(..., min_length=3, max_length=50, regex="^[a-zA-Z0-9_-]+$")
     full_name: Optional[str] = Field(default=None)
     disabled: bool = Field(default=False)
     is_active: bool = Field(default=True)
@@ -15,7 +15,7 @@ class UserBase(MongoBaseModel):
         json_schema_extra = {
             "example": {
                 "email": "user@example.com",
-                "username": "johndoe",
+                "username": "john_doe",
                 "full_name": "John Doe",
                 "disabled": False,
                 "is_active": True

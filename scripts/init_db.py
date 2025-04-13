@@ -1,3 +1,4 @@
+import re
 import asyncio
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,6 +11,45 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+async def sanitize_username(username: str) -> str:
+    """Convert username to valid format."""
+    # Replace invalid characters with underscore
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', username)
+    # Ensure minimum length
+    if len(sanitized) < 3:
+        sanitized = sanitized + "_" * (3 - len(sanitized))
+    # Truncate if too long
+    return sanitized[:50]
+
+async def generate_unique_username(db, base_username: str) -> str:
+    """Generate a unique username by adding numbers if needed."""
+    username = await sanitize_username(base_username)
+    counter = 1
+    while await db.users.find_one({"username": username}):
+        suffix = f"_{counter}"
+        username = f"{base_username[:50-len(suffix)]}{suffix}"
+        counter += 1
+    return username
+
+async def cleanup_usernames(db) -> None:
+    """Clean up invalid usernames in the database."""
+    valid_username_pattern = re.compile(r'^[a-zA-Z0-9_-]+$')
+    
+    async for user in db.users.find({"$or": [
+        {"username": None},
+        {"username": {"$exists": False}},
+        {"username": {"$not": valid_username_pattern}}
+    ]}):
+        old_username = user.get("username", None)
+        base_username = old_username or user.get("email", "user").split("@")[0]
+        new_username = await generate_unique_username(db, base_username)
+        
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"username": new_username}}
+        )
+        logger.info(f"Updated username: {old_username} -> {new_username}")
 
 async def init_db():
     """Initialize the database with required collections and indexes."""
@@ -27,6 +67,18 @@ async def init_db():
             if collection not in await db.list_collection_names():
                 await db.create_collection(collection)
                 logger.info(f"Created collection: {collection}")
+
+        # Clean up invalid usernames first
+        await cleanup_usernames(db)
+
+        # Drop existing indexes to avoid conflicts
+        try:
+            await db.users.drop_indexes()
+            await db.messages.drop_indexes()
+            await db.categories.drop_indexes()
+            logger.info("Dropped existing indexes")
+        except Exception as e:
+            logger.warning(f"Error dropping indexes: {e}")
 
         # Create indexes
         # Users collection indexes
