@@ -42,10 +42,14 @@ class DateTimeModelMixin(BaseModel):
         """Update the updated_at timestamp to current UTC time"""
         self.updated_at = datetime.utcnow()
 
+def generate_object_id() -> str:
+    """Generate a new ObjectId and return it as string"""
+    return str(ObjectId())
+
 class DBModelMixin(MongoBaseModel):
     """Mixin for database models with ID field and validation"""
     id: PyObjectId = Field(
-        default_factory=lambda: str(ObjectId()), 
+        default_factory=generate_object_id,
         alias="_id",
         description="MongoDB ObjectId"
     )
