@@ -3,7 +3,11 @@
   "builds": [
     {
       "src": "main.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "runtime": "python3.11",
+        "maxLambdaSize": "15mb"
+      }
     }
   ],
   "routes": [
@@ -26,5 +30,7 @@
     "PYTHON_VERSION": "3.11",
     "MONGODB_DB_NAME": "ai_assistance",
     "CORS_ORIGINS": "https://ai-help-center-frontend-vkp9.vercel.app"
-  }
+  },
+  "devCommand": "uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+  "buildCommand": "pip install -r requirements.txt"
 } 
