@@ -13,4 +13,10 @@ services:
         value: ai_assistance
       - key: CORS_ORIGINS
         value: https://ai-help-center-frontend-vkp9.vercel.app
+      - key: SECRET_KEY
+        value: dd3f6105284371a7aea5a369193eccdb66deaecceb9de0af7d96caaa1d342e5b
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
     autoDeploy: true 
