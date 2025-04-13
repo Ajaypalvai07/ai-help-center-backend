@@ -1,7 +1,6 @@
 from datetime import datetime
-from typing import Optional, Any, Dict, Generator, Annotated
-from pydantic import BaseModel, Field, ConfigDict, GetJsonSchemaHandler
-from pydantic.json_schema import JsonSchemaValue
+from typing import Optional, Any, Dict, Generator
+from pydantic import BaseModel, Field
 from bson import ObjectId
 
 class PyObjectId(str):
@@ -19,22 +18,17 @@ class PyObjectId(str):
         return str(v)
 
     @classmethod
-    def __get_pydantic_json_schema__(
-        cls, field_schema: JsonSchemaValue, field: GetJsonSchemaHandler
-    ) -> JsonSchemaValue:
+    def __modify_schema__(cls, field_schema: Dict[str, Any]) -> None:
         field_schema.update(type="string", format="objectid")
-        return field_schema
 
 class MongoBaseModel(BaseModel):
     """Base model for all MongoDB documents"""
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-        json_encoders={ObjectId: str},
-        json_schema_extra={
-            "example": {}
+    class Config:
+        allow_population_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {
+            ObjectId: str
         }
-    )
 
 class DateTimeModelMixin(BaseModel):
     """Mixin for models that need created_at and updated_at fields"""
@@ -47,32 +41,32 @@ class DateTimeModelMixin(BaseModel):
     def update_timestamp(self) -> None:
         self.updated_at = datetime.utcnow()
 
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda dt: dt.isoformat() if dt else None}
-    )
+    class Config:
+        json_encoders = {
+            datetime: lambda dt: dt.isoformat() if dt else None
+        }
 
 class DBModelMixin(MongoBaseModel):
     """Mixin for database models with ID field"""
-    id: Annotated[str, Field(
+    id: PyObjectId = Field(
         default_factory=lambda: str(ObjectId()),
         alias="_id",
         description="MongoDB ObjectId"
-    )]
+    )
 
 class BaseDBModel(DBModelMixin, DateTimeModelMixin):
     """Complete base model for database documents"""
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-        json_encoders={
+    class Config:
+        allow_population_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {
             ObjectId: str,
             datetime: lambda dt: dt.isoformat() if dt else None
-        },
-        json_schema_extra={
+        }
+        schema_extra = {
             "example": {
                 "id": "507f1f77bcf86cd799439011",
                 "created_at": "2024-02-20T12:00:00",
                 "updated_at": "2024-02-20T12:00:00"
             }
         }
-    )
