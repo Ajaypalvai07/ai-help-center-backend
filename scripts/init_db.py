@@ -1,7 +1,14 @@
+import os
+import sys
 import re
 import asyncio
 import logging
+from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
+
+# Add the backend directory to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.config import get_settings
 from datetime import datetime
 
@@ -15,7 +22,7 @@ logger = logging.getLogger(__name__)
 async def sanitize_username(username: str) -> str:
     """Convert username to valid format."""
     # Replace invalid characters with underscore
-    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', username)
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', username or '')
     # Ensure minimum length
     if len(sanitized) < 3:
         sanitized = sanitized + "_" * (3 - len(sanitized))
@@ -54,13 +61,11 @@ async def cleanup_usernames(db) -> None:
 async def init_db():
     """Initialize the database with required collections and indexes."""
     settings = get_settings()
-    client = None
-    try:
-        # Connect to MongoDB
-        client = AsyncIOMotorClient(settings.MONGODB_URL)
-        db = client[settings.MONGODB_DB_NAME]
-        logger.info(f"Connected to MongoDB database: {settings.MONGODB_DB_NAME}")
+    client = AsyncIOMotorClient(settings.get_mongodb_url())
+    db = client[settings.MONGODB_DB_NAME]
+    logger.info(f"Connected to MongoDB database: {settings.MONGODB_DB_NAME}")
 
+    try:
         # Create collections
         collections = ["users", "messages", "categories", "feedback"]
         for collection in collections:
@@ -127,9 +132,8 @@ async def init_db():
         logger.error(f"Error initializing database: {str(e)}")
         raise
     finally:
-        if client:
-            client.close()
-            logger.info("Database connection closed")
+        client.close()
+        logger.info("Database connection closed")
 
 if __name__ == "__main__":
     asyncio.run(init_db()) 
