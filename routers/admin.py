@@ -3,99 +3,50 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from middleware.auth import get_current_admin
 from models.user import UserInDB, UserUpdate
-from core.database import get_database
+from core.database import get_db_dependency
 # from ..core.auth import get_current_admin_user
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 import logging
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
 
 @router.get("/metrics")
-async def get_metrics(db: AsyncIOMotorClient = Depends(get_database), 
-                     _: UserInDB = Depends(get_current_admin)) -> Dict:
-    """Get system-wide metrics and statistics"""
+async def get_metrics(
+    db: AsyncIOMotorDatabase = Depends(get_db_dependency), 
+    _: UserInDB = Depends(get_current_admin)
+) -> Dict:
+    """Get admin metrics"""
     try:
-        # Initialize default response
-        metrics = {
-            "total_users": 0,
-            "total_messages": 0,
-            "resolved_messages": 0,
-            "resolution_rate": 0.0,
-            "messages_last_24h": 0,
-            "category_distribution": {},
-            "success": True,
-            "error": None
-        }
+        # Get total users
+        total_users = await db.users.count_documents({})
         
-        # Get collection names
-        collections = await db.list_collection_names()
+        # Get active users (users who logged in within last 30 days)
+        active_users = await db.users.count_documents({
+            "last_login": {"$gte": datetime.utcnow() - timedelta(days=30)}
+        })
         
-        # Calculate user metrics if collection exists
-        if "users" in collections:
-            try:
-                metrics["total_users"] = await db.users.count_documents({})
-            except Exception as e:
-                logger.error(f"Error counting users: {e}")
-                metrics["total_users"] = "Error"
+        # Get total messages
+        total_messages = await db.messages.count_documents({})
         
-        # Calculate message metrics if collection exists
-        if "messages" in collections:
-            try:
-                # Total messages
-                metrics["total_messages"] = await db.messages.count_documents({})
-                
-                # Resolved messages
-                metrics["resolved_messages"] = await db.messages.count_documents({"status": "resolved"})
-                
-                # Resolution rate
-                if metrics["total_messages"] > 0:
-                    metrics["resolution_rate"] = round(metrics["resolved_messages"] / metrics["total_messages"] * 100, 2)
-                
-                # Messages in last 24h
-                yesterday = datetime.utcnow() - timedelta(days=1)
-                metrics["messages_last_24h"] = await db.messages.count_documents({
-                    "created_at": {"$gte": yesterday}
-                })
-                
-                # Category distribution
-                categories = await db.messages.distinct("category")
-                category_counts = {}
-                for category in categories:
-                    count = await db.messages.count_documents({"category": category})
-                    category_counts[category] = count
-                metrics["category_distribution"] = category_counts
-                
-            except Exception as e:
-                logger.error(f"Error calculating message metrics: {e}")
-                metrics.update({
-                    "total_messages": "Error",
-                    "resolved_messages": "Error",
-                    "resolution_rate": "Error",
-                    "messages_last_24h": "Error",
-                    "category_distribution": {}
-                })
+        # Get resolved messages
+        resolved_messages = await db.messages.count_documents({"status": "resolved"})
         
-        return metrics
-        
-    except Exception as e:
-        logger.error(f"Critical error in get_metrics: {e}")
         return {
-            "success": False,
-            "error": str(e),
-            "total_users": 0,
-            "total_messages": 0,
-            "resolved_messages": 0,
-            "resolution_rate": 0.0,
-            "messages_last_24h": 0,
-            "category_distribution": {}
+            "total_users": total_users,
+            "active_users": active_users,
+            "total_messages": total_messages,
+            "resolved_messages": resolved_messages
         }
+    except Exception as e:
+        logger.error(f"Error getting metrics: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get metrics")
 
 @router.get("/users", response_model=List[UserInDB])
 async def get_users(_: UserInDB = Depends(get_current_admin)):
     """Get all users in the system"""
     try:
-        db = await get_database()
+        db = await get_db_dependency()
         users = await db.users.find({}).to_list(None)
         return users
     except Exception as e:
@@ -117,7 +68,7 @@ async def get_roles(_: UserInDB = Depends(get_current_admin)):
 
 @router.get("/logs")
 async def get_logs(limit: int = 100, 
-                  db: AsyncIOMotorClient = Depends(get_database),
+                  db: AsyncIOMotorClient = Depends(get_db_dependency),
                   _: UserInDB = Depends(get_current_admin)) -> List[Dict]:
     """Get system logs"""
     try:
@@ -137,7 +88,7 @@ async def get_logs(limit: int = 100,
 
 @router.post("/log")
 async def add_log(level: str, message: str,
-                 db: AsyncIOMotorClient = Depends(get_database),
+                 db: AsyncIOMotorClient = Depends(get_db_dependency),
                  _: UserInDB = Depends(get_current_admin)):
     try:
         await db.system_logs.insert_one({
@@ -158,7 +109,7 @@ async def update_user(
 ):
     """Update user details"""
     try:
-        db = await get_database()
+        db = await get_db_dependency()
         result = await db.users.update_one(
             {"_id": user_id},
             {"$set": user_update.model_dump(exclude_unset=True)}
@@ -177,7 +128,7 @@ async def delete_user(
 ):
     """Delete a user"""
     try:
-        db = await get_database()
+        db = await get_db_dependency()
         result = await db.users.delete_one({"_id": user_id})
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="User not found")

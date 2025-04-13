@@ -10,6 +10,7 @@ from core.ml_engine import ml_engine
 from bson import ObjectId
 import logging
 from datetime import datetime
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])

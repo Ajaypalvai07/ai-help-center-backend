@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from typing import Dict, Any
+from models.user import UserCreate, UserResponse, UserInDB
+from models.auth import AuthResponse
+from core.auth import verify_password, get_password_hash, create_access_token
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from core.database import get_db_dependency
 from datetime import datetime
 import logging
 from bson import ObjectId
-from core.database import get_db_dependency
-from core.auth import create_access_token, verify_password, get_password_hash
-from models.user import UserInDB, UserCreate, UserResponse
-from models.auth import AuthResponse
 from middleware.auth import get_current_active_user
 
 logger = logging.getLogger(__name__)

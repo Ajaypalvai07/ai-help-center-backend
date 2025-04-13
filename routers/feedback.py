@@ -3,7 +3,8 @@ from typing import List, Dict
 from models.feedback import FeedbackCreate, Feedback
 from models.user import UserInDB
 from middleware.auth import get_current_active_user
-from core.database import get_database
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from core.database import get_db_dependency
 from datetime import datetime
 import logging
 
@@ -14,7 +15,7 @@ router = APIRouter(tags=["feedback"])
 async def submit_feedback(
     feedback: FeedbackCreate,
     current_user: UserInDB = Depends(get_current_active_user),
-    db = Depends(get_database)
+    db: AsyncIOMotorDatabase = Depends(get_db_dependency)
 ):
     """Submit user feedback for a message"""
     try:
@@ -38,7 +39,7 @@ async def submit_feedback(
 @router.get("/stats")
 async def get_feedback_stats(
     current_user: UserInDB = Depends(get_current_active_user),
-    db = Depends(get_database)
+    db = Depends(get_db_dependency)
 ) -> Dict:
     """Get feedback statistics"""
     try:

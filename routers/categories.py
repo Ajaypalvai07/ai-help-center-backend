@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
-from core.database import get_database
+from core.database import get_database, get_db_dependency
 from bson import ObjectId
 import logging
 from models.category import CategoryResponse, CategoryInDB, CategoryStats
