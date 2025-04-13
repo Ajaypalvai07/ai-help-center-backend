@@ -91,66 +91,58 @@ async def register(
     user_data: UserCreate,
     db: AsyncIOMotorDatabase = Depends(get_db_dependency)
 ):
-    """Register new user"""
+    """Register a new user"""
     try:
-        # Normalize email
-        email = user_data.email.lower().strip()
-        
-        # Check if user exists
-        if await db.users.find_one({"email": email}):
+        # Check if user already exists
+        existing_user = await db.users.find_one({"email": user_data.email})
+        if existing_user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail="Email already registered"
             )
 
+        # Hash password
+        hashed_password = get_password_hash(user_data.password)
+        
         # Create user document
-        user_dict = user_data.model_dump()
-        user_dict.update({
-            "email": email,
-            "password": get_password_hash(user_data.password),
-            "created_at": datetime.utcnow(),
-            "role": "user",
-            "is_active": True,
-            "preferences": {},
-            "last_login": None
-        })
+        user_dict = user_data.dict()
+        user_dict["hashed_password"] = hashed_password
+        user_dict["role"] = "user"
+        user_dict["created_at"] = datetime.utcnow()
+        del user_dict["password"]  # Remove plain password
 
         # Insert into database
         result = await db.users.insert_one(user_dict)
-        user_dict["id"] = str(result.inserted_id)
+        
+        if not result.inserted_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create user"
+            )
 
         # Create access token
-        token_data = {
-            "sub": email,
-            "role": "user"
+        access_token = create_access_token(
+            data={"sub": user_data.email}
+        )
+
+        # Get created user
+        created_user = await db.users.find_one({"_id": result.inserted_id})
+        if not created_user:
+            raise HTTPException(
+                status_code=500,
+                detail="User created but not found"
+            )
+
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": created_user
         }
-        access_token = create_access_token(data=token_data)
 
-        # Create response
-        user_response = UserResponse(
-            id=user_dict["id"],
-            email=email,
-            name=user_dict["name"],
-            role=user_dict["role"],
-            is_active=user_dict["is_active"],
-            created_at=user_dict["created_at"],
-            last_login=user_dict["last_login"],
-            preferences=user_dict["preferences"]
-        )
-
-        logger.info(f"Registration successful - User: {email}")
-        return AuthResponse(
-            access_token=access_token,
-            token_type="bearer",
-            user=user_response
-        )
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Registration failed: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=500,
             detail=str(e)
         )
 

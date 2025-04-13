@@ -4,47 +4,28 @@ from core.database import get_database
 from bson import ObjectId
 import logging
 from models.category import CategoryResponse, CategoryInDB, CategoryStats
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["categories"])
 
 @router.get("", response_model=List[CategoryResponse])
-async def get_categories(active_only: bool = True) -> List[CategoryResponse]:
+async def get_categories(
+    active_only: bool = True,
+    db: AsyncIOMotorDatabase = Depends(get_db_dependency)
+) -> List[CategoryResponse]:
     """Get all categories"""
     try:
-        db = await get_database()
         query = {"active": True} if active_only else {}
-        categories = await db.find_many("categories", query)
-        
-        if not categories:
-            # Create default categories if none exist
-            default_categories = [
-                CategoryInDB(
-                    name="General",
-                    description="General inquiries and messages",
-                    active=True
-                ),
-                CategoryInDB(
-                    name="Technical Support",
-                    description="Technical issues and support requests",
-                    active=True
-                ),
-                CategoryInDB(
-                    name="Feedback",
-                    description="User feedback and suggestions",
-                    active=True
-                )
-            ]
-            
-            for category in default_categories:
-                await db.insert_one("categories", category.model_dump(by_alias=True))
-            
-            categories = await db.find_many("categories", query)
-        
-        return [CategoryResponse(**cat) for cat in categories]
+        cursor = db.categories.find(query).sort("name", 1)
+        categories = await cursor.to_list(length=None)
+        return [CategoryResponse(**category) for category in categories]
     except Exception as e:
         logger.error(f"Error getting categories: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch categories"
+        )
 
 @router.get("/{category_id}", response_model=CategoryResponse)
 async def get_category(category_id: str) -> CategoryResponse:

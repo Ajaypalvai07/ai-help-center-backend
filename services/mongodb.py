@@ -3,7 +3,7 @@ from bson import ObjectId
 from typing import Optional, List, Dict, Any, Tuple, TypeVar, cast, Union
 from datetime import datetime
 import logging
-from core.config import settings
+from core.config import settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,78 +34,100 @@ async def get_mongodb():
     return mongodb
 
 class MongoDBService:
-    def __init__(self):
-        self.client: Union[None, AsyncIOMotorClient] = None
-        self.db: Union[None, AsyncIOMotorDatabase] = None
+    _instance = None
+    client: Optional[AsyncIOMotorClient] = None
+    db: Optional[AsyncIOMotorDatabase] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     async def connect(self) -> None:
-        """Connect to MongoDB"""
-        try:
-            self.client = AsyncIOMotorClient(settings.MONGODB_URL)
-            self.db = self.client[settings.MONGODB_DB_NAME]
-            # Verify connection
-            await self.client.admin.command('ping')
-            logger.info("Connected to MongoDB successfully")
-            # Create indexes
-            await self.create_indexes()
-        except Exception as e:
-            logger.error(f"Could not connect to MongoDB: {str(e)}")
-            raise
+        """Connect to MongoDB database"""
+        if not self.client:
+            try:
+                settings = get_settings()
+                self.client = AsyncIOMotorClient(settings.MONGODB_URL)
+                self.db = self.client[settings.MONGODB_DB_NAME]
+                # Test connection
+                await self.db.command('ping')
+                logger.info(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
+            except Exception as e:
+                logger.error(f"MongoDB connection error: {str(e)}")
+                raise
 
     async def close(self) -> None:
         """Close MongoDB connection"""
-        if self.client is not None:
+        if self.client:
             self.client.close()
-            logger.info("MongoDB connection closed")
+            self.client = None
+            self.db = None
+            logger.info("Closed MongoDB connection")
+
+    def _check_connection(self):
+        """Check if database connection is initialized"""
+        if not self.db:
+            raise RuntimeError("Database connection not initialized")
 
     async def create_indexes(self) -> None:
-        """Create necessary indexes"""
+        """Create database indexes"""
         try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
-                
+            self._check_connection()
             # Users collection indexes
             await self.db.users.create_index("email", unique=True)
             await self.db.users.create_index("username", unique=True)
-            
             # Messages collection indexes
             await self.db.messages.create_index([("user_id", 1), ("created_at", -1)])
-            await self.db.messages.create_index("category")
-            
-            # Feedback collection indexes
-            await self.db.feedback.create_index("message_id")
-            await self.db.feedback.create_index("user_id")
-            
-            logger.info("MongoDB indexes created successfully")
+            # Categories collection indexes
+            await self.db.categories.create_index("name", unique=True)
+            logger.info("Created database indexes")
         except Exception as e:
-            logger.error(f"Error creating MongoDB indexes: {str(e)}")
-            raise
-
-    # Generic CRUD operations
-    async def insert_one(self, collection: str, data: Dict[str, Any]) -> str:
-        """Insert a single document"""
-        try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
-            result = await self.db[collection].insert_one(data)
-            return str(result.inserted_id)
-        except Exception as e:
-            logger.error(f"Error inserting document into {collection}: {str(e)}")
+            logger.error(f"Error creating indexes: {str(e)}")
             raise
 
     async def find_one(self, collection: str, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Find a single document"""
         try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
-            result = await self.db[collection].find_one(query)
-            if result:
-                result["id"] = str(result.pop("_id"))
-            return result
+            self._check_connection()
+            return await self.db[collection].find_one(query)
         except Exception as e:
-            logger.error(f"Error finding document in {collection}: {str(e)}")
+            logger.error(f"Error in find_one: {str(e)}")
             raise
 
+    async def find(self, collection: str, query: Dict[str, Any], sort: Optional[List[Tuple[str, int]]] = None) -> List[Dict[str, Any]]:
+        """Find multiple documents"""
+        try:
+            self._check_connection()
+            cursor = self.db[collection].find(query)
+            if sort:
+                cursor = cursor.sort(sort)
+            return await cursor.to_list(length=None)
+        except Exception as e:
+            logger.error(f"Error in find: {str(e)}")
+            raise
+
+    async def insert_one(self, collection: str, document: Dict[str, Any]) -> str:
+        """Insert a single document"""
+        try:
+            self._check_connection()
+            result = await self.db[collection].insert_one(document)
+            return str(result.inserted_id)
+        except Exception as e:
+            logger.error(f"Error in insert_one: {str(e)}")
+            raise
+
+    async def update_one(self, collection: str, query: Dict[str, Any], update: Dict[str, Any]) -> bool:
+        """Update a single document"""
+        try:
+            self._check_connection()
+            result = await self.db[collection].update_one(query, {"$set": update})
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error in update_one: {str(e)}")
+            raise
+
+    # Generic CRUD operations
     async def find_many(
         self,
         collection: str,
@@ -116,8 +138,7 @@ class MongoDBService:
     ) -> List[Dict[str, Any]]:
         """Find multiple documents"""
         try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
+            self._check_connection()
             cursor = self.db[collection].find(query).skip(skip).limit(limit)
             if sort:
                 cursor = cursor.sort(sort)
@@ -129,32 +150,10 @@ class MongoDBService:
             logger.error(f"Error finding documents in {collection}: {str(e)}")
             raise
 
-    async def update_one(
-        self,
-        collection: str,
-        query: Dict[str, Any],
-        update_data: Dict[str, Any],
-        upsert: bool = False
-    ) -> bool:
-        """Update a single document"""
-        try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
-            result = await self.db[collection].update_one(
-                query,
-                {"$set": update_data},
-                upsert=upsert
-            )
-            return bool(result.modified_count > 0 or (upsert and result.upserted_id))
-        except Exception as e:
-            logger.error(f"Error updating document in {collection}: {str(e)}")
-            raise
-
     async def delete_one(self, collection: str, query: Dict[str, Any]) -> bool:
         """Delete a single document"""
         try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
+            self._check_connection()
             result = await self.db[collection].delete_one(query)
             return bool(result.deleted_count > 0)
         except Exception as e:
@@ -164,8 +163,7 @@ class MongoDBService:
     # User operations
     async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         try:
-            if self.db is None:
-                raise ValueError("Database not initialized")
+            self._check_connection()
             user = await self.db.users.find_one({"_id": ObjectId(user_id)})
             if user:
                 user["id"] = str(user.pop("_id"))
@@ -247,5 +245,5 @@ class MongoDBService:
             "resolution_rate": (resolved_count / messages_count * 100) if messages_count > 0 else 0
         }
 
-# Initialize MongoDB service
+# Create a singleton instance
 mongodb_service = MongoDBService() 
