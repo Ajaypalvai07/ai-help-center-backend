@@ -15,13 +15,14 @@ app = FastAPI(
     description="AI Assistant API with OpenAI integration"
 )
 
-# Configure CORS
+# Configure CORS - More permissive for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # Allows all origins in development
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+    expose_headers=["*"]  # Exposes all headers
 )
 
 @app.on_event("startup")
@@ -30,7 +31,7 @@ async def startup_event():
     try:
         print("\n=== Starting AI Assistant API ===")
         await init_db()
-        print(f"✅ CORS enabled for: {settings.CORS_ORIGINS}")
+        print("✅ CORS enabled for all origins (development mode)")
         print("=== Startup Complete ===\n")
     except Exception as e:
         print(f"❌ Startup Error: {str(e)}")
@@ -42,12 +43,32 @@ async def shutdown_event():
     await close_db()
     print("✅ Application shutdown complete")
 
-# Include routers
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
-app.include_router(categories.router, prefix="/api/v1/categories", tags=["categories"])
-app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
-app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
-app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["feedback"])
+# Include routers with explicit prefixes
+app.include_router(
+    auth.router,
+    prefix="/api/v1/auth",
+    tags=["auth"]
+)
+app.include_router(
+    categories.router,
+    prefix="/api/v1/categories",
+    tags=["categories"]
+)
+app.include_router(
+    chat.router,
+    prefix="/api/v1/chat",
+    tags=["chat"]
+)
+app.include_router(
+    admin.router,
+    prefix="/api/v1/admin",
+    tags=["admin"]
+)
+app.include_router(
+    feedback.router,
+    prefix="/api/v1/feedback",
+    tags=["feedback"]
+)
 
 @app.get("/")
 async def root():
@@ -60,4 +81,9 @@ async def root():
 # Entry point for running the application
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        reload=True  # Enable auto-reload for development
+    ) 
