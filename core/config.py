@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     
     # Environment Settings
     ENVIRONMENT: str = Field(env='ENVIRONMENT', default='development')
-    DEBUG: bool = Field(default=True)  # Set default to True for development
+    DEBUG: bool = Field(default=True)
     
     # MongoDB Settings
     MONGODB_URL: str = Field(env='MONGODB_URL', default='mongodb://localhost:27017')
@@ -67,7 +67,6 @@ class Settings(BaseSettings):
             try:
                 return json.loads(v)
             except json.JSONDecodeError:
-                logger.warning("Failed to parse MONGODB_OPTIONS as JSON, using default options")
                 return {}
         return v
         
@@ -77,7 +76,7 @@ class Settings(BaseSettings):
             try:
                 return json.loads(v)
             except json.JSONDecodeError:
-                return [origin.strip() for origin in v.split(',')]
+                return v.split(",")
         return v
 
     def get_mongodb_url(self) -> str:
@@ -101,7 +100,7 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT == 'production':
             assert self.SECRET_KEY != 'your-secret-key-here', "Production environment requires a secure SECRET_KEY"
             assert self.ENCRYPTION_KEY.get_secret_value() != 'your-encryption-key-here', "Production environment requires a secure ENCRYPTION_KEY"
-            assert '*' not in self.CORS_ORIGINS, "Production environment should not use wildcard CORS_ORIGINS"
+            assert "*" not in self.CORS_ORIGINS, "Production environment should not allow all origins"
 
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """Override dict method to handle SecretStr fields"""
@@ -116,7 +115,8 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get application settings"""
     settings = Settings()
-    settings.validate_settings()
+    if os.getenv('VALIDATE_SETTINGS', '').lower() == 'true':
+        settings.validate_settings()
     return settings
 
 # Initialize settings

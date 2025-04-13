@@ -2,6 +2,7 @@ services:
   - type: web
     name: ai-help-center-backend
     env: python
+    region: oregon
     buildCommand: |
       python -V
       pip install -r requirements.txt
@@ -14,11 +15,20 @@ services:
       - key: CORS_ORIGINS
         value: '["https://ai-help-center-frontend-vkp9.vercel.app"]'
       - key: SECRET_KEY
-        value: 0m7cQUSymsK2o9wFkv0tNz9_hy3lgyhcugb1QQV82bU
+        generateValue: true
       - key: ALGORITHM
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "30"
       - key: ENCRYPTION_KEY
-        value: 8f9e2a7b4c1d6e3f5a8b2c4d7e9f1a0b3c5d8e2f4a6b9c0d1e3f5a8b2c4d7e9
-    autoDeploy: true 
+        generateValue: true
+      - key: MONGODB_URL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.7
+    healthCheckPath: /
+    autoDeploy: true
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/static/uploads
+      sizeGB: 1 

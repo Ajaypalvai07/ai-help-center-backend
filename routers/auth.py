@@ -1,19 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from core.config import get_settings
 from models.user import UserCreate, UserResponse, UserInDB
 from models.auth import AuthResponse
 from core.auth import verify_password, get_password_hash, create_access_token
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from core.database import get_db_dependency
-from datetime import datetime, timedelta
 import logging
 from bson import ObjectId
 from middleware.auth import get_current_active_user
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from ..core.config import get_settings
-from ..services.mongodb import get_mongodb
+from services.mongodb import get_mongodb
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])

@@ -20,10 +20,19 @@ mkdir -p static/uploads
 
 echo "Setting up environment..."
 if [ ! -f .env ]; then
-    cp .env.production .env
+    if [ "$ENVIRONMENT" = "production" ]; then
+        cp .env.production .env
+    else
+        cp .env.example .env
+    fi
 fi
 
 echo "Running database migrations..."
 python scripts/init_db.py
+
+echo "Running tests..."
+if [ "$SKIP_TESTS" != "true" ]; then
+    python -m pytest tests/ -v
+fi
 
 echo "Build completed successfully!" 

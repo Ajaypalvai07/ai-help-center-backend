@@ -2,6 +2,7 @@ import asyncio
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from core.config import get_settings
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -21,7 +22,7 @@ async def init_db():
         logger.info(f"Connected to MongoDB database: {settings.MONGODB_DB_NAME}")
 
         # Create collections
-        collections = ["users", "messages", "categories"]
+        collections = ["users", "messages", "categories", "feedback"]
         for collection in collections:
             if collection not in await db.list_collection_names():
                 await db.create_collection(collection)
@@ -31,15 +32,42 @@ async def init_db():
         # Users collection indexes
         await db.users.create_index("email", unique=True)
         await db.users.create_index("username", unique=True)
+        await db.users.create_index([("role", 1), ("is_active", 1)])
         logger.info("Created indexes for users collection")
 
         # Messages collection indexes
         await db.messages.create_index([("user_id", 1), ("created_at", -1)])
+        await db.messages.create_index([("category", 1), ("created_at", -1)])
         logger.info("Created indexes for messages collection")
 
         # Categories collection indexes
         await db.categories.create_index("name", unique=True)
+        await db.categories.create_index("active")
         logger.info("Created indexes for categories collection")
+
+        # Feedback collection indexes
+        await db.feedback.create_index([("message_id", 1), ("created_at", -1)])
+        await db.feedback.create_index([("user_id", 1), ("created_at", -1)])
+        logger.info("Created indexes for feedback collection")
+
+        # Create default admin user if not exists
+        admin_user = await db.users.find_one({"email": "admin@example.com"})
+        if not admin_user:
+            from passlib.context import CryptContext
+            pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+            
+            admin_doc = {
+                "email": "admin@example.com",
+                "username": "admin",
+                "full_name": "System Admin",
+                "hashed_password": pwd_context.hash("admin123"),
+                "role": "admin",
+                "is_active": True,
+                "created_at": datetime.utcnow(),
+                "preferences": {}
+            }
+            await db.users.insert_one(admin_doc)
+            logger.info("Created default admin user")
 
         logger.info("Database initialization completed successfully")
 

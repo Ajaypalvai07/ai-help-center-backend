@@ -1,28 +1,32 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from core.config import settings
-from core.database import init_db, close_db
+from core.config import get_settings
+from core.database import Database
 from routers import chat, admin, categories, auth, feedback
 from core.logging_config import configure_logging
 
 # Configure logging
 configure_logging()
+settings = get_settings()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
-    description="AI Assistant API with OpenAI integration"
+    description="AI Assistant API with OpenAI integration",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json"
 )
 
-# Configure CORS - More permissive for development
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins in development
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-    expose_headers=["*"]  # Exposes all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 @app.on_event("startup")
@@ -30,8 +34,8 @@ async def startup_event():
     """Initialize application on startup"""
     try:
         print("\n=== Starting AI Assistant API ===")
-        await init_db()
-        print("✅ CORS enabled for all origins (development mode)")
+        await Database.initialize()
+        print(f"✅ CORS enabled for origins: {settings.CORS_ORIGINS}")
         print("=== Startup Complete ===\n")
     except Exception as e:
         print(f"❌ Startup Error: {str(e)}")
@@ -40,7 +44,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on application shutdown"""
-    await close_db()
+    await Database.close()
     print("✅ Application shutdown complete")
 
 # Include routers with explicit prefixes
@@ -72,18 +76,19 @@ app.include_router(
 
 @app.get("/")
 async def root():
+    """Root endpoint returning API status"""
     return {
         "status": "running",
         "version": "1.0.0",
-        "docs_url": "/docs"
+        "docs_url": "/api/docs"
     }
 
-# Entry point for running the application
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        app,
+        "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True  # Enable auto-reload for development
+        reload=True,
+        log_level="info"
     ) 

@@ -30,64 +30,84 @@ class Database:
     """Database connection manager"""
     client: Optional[AsyncIOMotorClient] = None
     db: Optional[AsyncIOMotorDatabase] = None
-    initialized: bool = False  # Add this line
+    initialized: bool = False
     json_encoder = JSONEncoder()
 
     @classmethod
     async def initialize(cls) -> None:
         """Initialize database connection"""
-        if cls.client is not None:
+        if cls.initialized:
             return
 
         try:
+            logger.info("Initializing database connection...")
             cls.client = AsyncIOMotorClient(
-                settings.get_mongodb_url(),
+                settings.MONGODB_URL,
                 **settings.MONGODB_OPTIONS
             )
             cls.db = cls.client[settings.MONGODB_DB_NAME]
             
             # Test connection
-            await cls.client.admin.command('ping')
-            logger.info(f"Successfully connected to MongoDB at {settings.get_mongodb_url()}")
-            logger.info(f"Using database: {settings.MONGODB_DB_NAME}")
-
-            await cls._create_indexes()  # Optional but good to call here
-            cls.initialized = True  # Set initialized to True
-
+            await cls.db.command("ping")
+            logger.info(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
+            
+            # Create indexes
+            await cls._create_indexes()
+            
+            cls.initialized = True
+            logger.info("Database initialization complete")
+            
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB: {str(e)}")
+            logger.error(f"Database initialization failed: {str(e)}")
+            if cls.client:
+                cls.client.close()
+                cls.client = None
+            cls.db = None
+            cls.initialized = False
             raise
 
     @classmethod
     async def _create_indexes(cls) -> None:
         """Create database indexes"""
         try:
+            # Users collection indexes
             await cls.db.users.create_index("email", unique=True)
-            await cls.db.users.create_index("role")
+            await cls.db.users.create_index("username", unique=True)
+            await cls.db.users.create_index([("role", 1), ("is_active", 1)])
+
+            # Messages collection indexes
             await cls.db.messages.create_index([("user_id", 1), ("created_at", -1)])
-            await cls.db.messages.create_index("category")
-            await cls.db.feedback.create_index([("message_id", 1), ("user_id", 1)])
-            await cls.db.feedback.create_index("created_at")
-            logger.info("✅ Database indexes created successfully")
+            await cls.db.messages.create_index([("category", 1), ("created_at", -1)])
+
+            # Categories collection indexes
+            await cls.db.categories.create_index("name", unique=True)
+            await cls.db.categories.create_index("active")
+
+            # Feedback collection indexes
+            await cls.db.feedback.create_index([("message_id", 1), ("created_at", -1)])
+            await cls.db.feedback.create_index([("user_id", 1), ("created_at", -1)])
+
+            logger.info("Database indexes created successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to create indexes: {str(e)}")
+            logger.error(f"Error creating indexes: {str(e)}")
             raise
 
     @classmethod
     def get_db(cls) -> AsyncIOMotorDatabase:
-        if cls.db is None:
-            raise RuntimeError("Database not initialized. Call initialize() first.")
+        """Get database instance"""
+        if not cls.initialized or not cls.db:
+            raise RuntimeError("Database not initialized")
         return cls.db
 
     @classmethod
     async def close(cls) -> None:
-        if cls.client is not None:
+        """Close database connection"""
+        if cls.client:
             cls.client.close()
             cls.client = None
             cls.db = None
             cls.initialized = False
-            logger.info("Closed MongoDB connection")
-
+            logger.info("Database connection closed")
 
 async def get_db_dependency() -> AsyncIOMotorDatabase:
     """FastAPI dependency for database access"""
@@ -95,20 +115,21 @@ async def get_db_dependency() -> AsyncIOMotorDatabase:
         await Database.initialize()
     return Database.get_db()
 
-# Initialize database on startup
+# Convenience functions
 async def init_db() -> None:
+    """Initialize database connection"""
     await Database.initialize()
 
-# Close database on shutdown
 async def close_db() -> None:
+    """Close database connection"""
     await Database.close()
 
 def get_db() -> AsyncIOMotorDatabase:
-    """Synchronous database getter"""
+    """Get database instance"""
     return Database.get_db()
 
 async def get_database() -> AsyncIOMotorDatabase:
-    """Asynchronous database getter"""
+    """Async function to get database instance"""
     if not Database.initialized:
         await Database.initialize()
     return Database.get_db()
