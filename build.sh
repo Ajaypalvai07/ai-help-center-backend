@@ -3,9 +3,20 @@
 # Exit on error
 set -e
 
-# Install Python dependencies
 echo "Installing Python dependencies..."
-python -m pip install --upgrade pip
+pip install --upgrade pip
 pip install -r requirements.txt
+
+echo "Creating necessary directories..."
+mkdir -p logs
+mkdir -p static/uploads
+
+echo "Setting up environment..."
+if [ ! -f .env ]; then
+    cp .env.production .env
+fi
+
+echo "Running database migrations..."
+python scripts/init_db.py
 
 echo "Build completed successfully!" 

@@ -9,21 +9,38 @@ FastAPI-based backend for the AI Help Center application with MongoDB integratio
 - JWT authentication
 - Role-based access control
 - MongoDB integration
-- AI-powered chat responses using Ollama
+- AI-powered chat responses
 - File upload handling
 - Error tracking and logging
 
 ## Tech Stack
 
-- Python 3.8+
+- Python 3.11
 - FastAPI
 - MongoDB (Motor)
-- Ollama
 - JWT Authentication
 - WebSockets
 - Pydantic
 
-## Getting Started
+## Production Deployment (Render)
+
+1. Make sure your code is pushed to GitHub
+2. Go to [Render.com](https://render.com) and sign in
+3. Click "New" → "Web Service"
+4. Connect your GitHub repository
+5. Configure the service:
+   - Name: ai-help-center-backend
+   - Environment: Python 3
+   - Region: Choose nearest to your users
+   - Branch: main
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `uvicorn main:app --host=0.0.0.0 --port=$PORT`
+6. Add environment variables from `.env.production`
+7. Click "Create Web Service"
+
+The service will be deployed at: `https://your-service-name.onrender.com`
+
+## Local Development
 
 1. Clone the repository:
 ```bash
@@ -57,13 +74,11 @@ CORS_ORIGINS=["http://localhost:3000"]
 uvicorn main:app --reload
 ```
 
-## Deployment
+## API Documentation
 
-1. Push to GitHub
-2. Deploy to Vercel:
-```bash
-vercel
-```
+Once the server is running, visit:
+- Swagger UI: `/docs`
+- ReDoc: `/redoc`
 
 ## Environment Variables
 
@@ -75,11 +90,20 @@ Required environment variables:
 - `ACCESS_TOKEN_EXPIRE_MINUTES`: JWT token expiration
 - `CORS_ORIGINS`: Allowed origins for CORS
 
-## API Documentation
-
-Once the server is running, visit:
-- Swagger UI: `/docs`
-- ReDoc: `/redoc`
+## Project Structure
+```
+backend/
+├── main.py              # FastAPI application entry point
+├── requirements.txt     # Python dependencies
+├── Procfile            # Render deployment configuration
+├── render.yaml         # Render service configuration
+├── runtime.txt         # Python version specification
+├── .env.production     # Production environment variables
+├── core/              # Core functionality
+├── models/            # Pydantic models
+├── routers/           # API routes
+└── services/          # Business logic
+```
 
 ## Default Admin Account
 
